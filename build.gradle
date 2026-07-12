@@ -1,0 +1,21 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+group = 'za.co.fnb.dcre'
+version = '0.1.0'
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    withSourcesJar()
+}
+repositories { mavenCentral(); mavenLocal() }
+dependencies {
+    api 'za.co.fnb.dcre:dcre-platform-files:0.1.0'
+    compileOnly 'org.springframework.boot:spring-boot:4.1.0'
+
+    testImplementation platform('org.junit:junit-bom:6.0.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+test { useJUnitPlatform() }
+publishing { publications { maven(MavenPublication) { from components.java } } }
