@@ -12,6 +12,14 @@ repositories { mavenCentral(); mavenLocal() }
 dependencies {
     api 'za.co.fnb.dcre:platform-files:0.1.0'
     compileOnly 'org.springframework.boot:spring-boot:4.1.0'
+    compileOnly 'org.springframework.boot:spring-boot-autoconfigure:4.1.0'
+
+    testImplementation platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
+    testImplementation 'org.springframework.boot:spring-boot'
+    testImplementation 'org.springframework.boot:spring-boot-autoconfigure'
+    testImplementation 'org.springframework.boot:spring-boot-test'
+    testImplementation 'org.assertj:assertj-core'
+    testImplementation 'org.yaml:snakeyaml'
 
     testImplementation platform('org.junit:junit-bom:6.0.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
