@@ -10,7 +10,7 @@ java {
 }
 repositories { mavenCentral(); mavenLocal() }
 dependencies {
-    api 'za.co.fnb.dcre:dcre-platform-files:0.1.0'
+    api 'za.co.fnb.dcre:platform-files:0.1.0'
     compileOnly 'org.springframework.boot:spring-boot:4.1.0'
 
     testImplementation platform('org.junit:junit-bom:6.0.2')
