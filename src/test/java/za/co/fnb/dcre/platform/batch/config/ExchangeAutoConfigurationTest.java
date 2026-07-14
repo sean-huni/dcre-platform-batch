@@ -5,12 +5,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 
 import za.co.fnb.dcre.platform.batch.ExchangeBootstrap;
 import za.co.fnb.dcre.platform.files.ExchangeLayout;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -35,12 +37,30 @@ class ExchangeAutoConfigurationTest {
     @Test
     void backsOffWhenOnlyLegacyFlatExchangeRootPresent() {
         // The pre-existing flat property is dcre.exchange-root (element "exchange-root"),
-        // distinct from dcre.exchange.root; it must NOT trigger the new autoconfig.
+        // distinct from dcre.exchange.enabled; it must NOT trigger the new autoconfig.
         runner.withPropertyValues("dcre.exchange-root=build/test-exchange").run(context -> {
             assertNull(context.getStartupFailure());
             assertEquals(0, context.getBeanNamesForType(ExchangeLayout.class).length);
             assertEquals(0, context.getBeanNamesForType(ExchangeBootstrap.class).length);
         });
+    }
+
+    @Test
+    void backsOffWhenOrchestratorExchangeRootEnvVarPresent() {
+        // Regression (caught live in-cluster 2026-07-14): AGT exports DCRE_EXCHANGE_ROOT to
+        // EVERY stage pod, and SystemEnvironmentPropertySource canonicalizes that env var to
+        // dcre.exchange.root. An autoconfig keyed on `root` therefore activated fleet-wide and
+        // crashed non-writer services (CTV) at startup on the empty-clients invariant. The
+        // marker key `enabled` must not match; the context must start with no exchange beans.
+        runner.withInitializer(context -> context.getEnvironment().getPropertySources().addFirst(
+                        new SystemEnvironmentPropertySource("test-env",
+                                Map.of("DCRE_EXCHANGE_ROOT", "/exchange"))))
+                .run(context -> {
+                    assertNull(context.getStartupFailure(),
+                            "a non-writer stage pod must start despite DCRE_EXCHANGE_ROOT");
+                    assertEquals(0, context.getBeanNamesForType(ExchangeLayout.class).length);
+                    assertEquals(0, context.getBeanNamesForType(ExchangeBootstrap.class).length);
+                });
     }
 
     @Test

@@ -14,15 +14,21 @@ import za.co.fnb.dcre.platform.files.ExchangeLayout;
  * and wires the startup {@link ExchangeBootstrap} for every writer service that
  * imports {@code classpath:dcre-exchange-layout.yml}.
  *
- * <p>Backs off entirely unless {@code dcre.exchange.root} is set (only the writer
- * services CIR/PRG/CRW import the layout yml). The other services that depend on
- * platform-batch for the seam listener carry no {@code dcre.exchange} config, so
- * they must not bind {@link ExchangeProperties} nor fail startup. The condition
- * targets the nested {@code dcre.exchange.root}, which is distinct from the legacy
- * flat {@code dcre.exchange-root} property.
+ * <p>Backs off entirely unless the marker {@code dcre.exchange.enabled=true} is set,
+ * which ONLY the shipped {@code dcre-exchange-layout.yml} provides (imported by the
+ * writer services CIR/PRG/CRW). The other services that depend on platform-batch for
+ * the seam listener carry no {@code dcre.exchange} config, so they must not bind
+ * {@link ExchangeProperties} nor fail startup.
+ *
+ * <p>The condition deliberately does NOT key on {@code dcre.exchange.root}: the
+ * orchestrator exports {@code DCRE_EXCHANGE_ROOT} to EVERY stage pod, and relaxed
+ * binding canonicalizes that env var to {@code dcre.exchange.root}, which activated
+ * the autoconfig fleet-wide and crashed non-writer services at startup (caught live
+ * on the first in-cluster smoke, 2026-07-14). No env var canonicalizes to
+ * {@code dcre.exchange.enabled}.
  */
 @AutoConfiguration
-@ConditionalOnProperty(prefix = "dcre.exchange", name = "root")
+@ConditionalOnProperty(prefix = "dcre.exchange", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(ExchangeProperties.class)
 public class ExchangeAutoConfiguration {
 
