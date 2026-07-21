@@ -13,6 +13,7 @@ dependencies {
     api 'za.co.fnb.dcre:platform-files:0.1.0'
     compileOnly 'org.springframework.boot:spring-boot:4.1.0'
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure:4.1.0'
+    compileOnly 'org.springframework.batch:spring-batch-core:6.0.4'
     compileOnly 'org.springframework.batch:spring-batch-infrastructure:6.0.4'
     compileOnly 'org.springframework:spring-tx:7.0.8'
     compileOnly 'org.slf4j:slf4j-api:2.0.17'
@@ -21,6 +22,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot'
     testImplementation 'org.springframework.boot:spring-boot-autoconfigure'
     testImplementation 'org.springframework.boot:spring-boot-test'
+    testImplementation 'org.springframework.batch:spring-batch-core:6.0.4'
     testImplementation 'org.assertj:assertj-core'
     testImplementation 'org.yaml:snakeyaml'
 
