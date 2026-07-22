@@ -31,8 +31,15 @@ public record ExchangeProperties(String root, Map<String, ClientDirs> clients) {
         return new ExchangeLayout(Path.of(root), dirs);
     }
 
+    /**
+     * Collections five + mandates four (SCRUM-73). Every field is optional:
+     * an absent yml block stays absent in the channel map, so
+     * {@link ExchangeLayout#resolve} keeps failing closed for it.
+     */
     public record ClientDirs(ChannelDirs onhostReq, ChannelDirs onhostReqEndo, ChannelDirs onhostResp,
-                             ChannelDirs fintReq, ChannelDirs fintResp) {
+                             ChannelDirs fintReq, ChannelDirs fintResp,
+                             ChannelDirs onhostReqMan, ChannelDirs onhostRespMan,
+                             ChannelDirs fintReqMan, ChannelDirs fintRespMan) {
 
         Map<ExchangeChannel, Map<ExchangeSub, String>> toChannelMap() {
             final Map<ExchangeChannel, Map<ExchangeSub, String>> map = new LinkedHashMap<>();
@@ -41,6 +48,10 @@ public record ExchangeProperties(String root, Map<String, ClientDirs> clients) {
             put(map, ExchangeChannel.ONHOST_RESP, onhostResp);
             put(map, ExchangeChannel.FINT_REQ, fintReq);
             put(map, ExchangeChannel.FINT_RESP, fintResp);
+            put(map, ExchangeChannel.ONHOST_REQ_MAN, onhostReqMan);
+            put(map, ExchangeChannel.ONHOST_RESP_MAN, onhostRespMan);
+            put(map, ExchangeChannel.FINT_REQ_MAN, fintReqMan);
+            put(map, ExchangeChannel.FINT_RESP_MAN, fintRespMan);
             return map;
         }
 

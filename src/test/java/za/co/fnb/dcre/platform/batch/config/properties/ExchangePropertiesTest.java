@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.ClassPathResource;
 
 import za.co.fnb.dcre.platform.files.ExchangeChannel;
@@ -67,6 +68,54 @@ class ExchangePropertiesTest {
     void emptyOrNullClientsFailsStartup() {
         assertThrows(IllegalStateException.class, () -> new ExchangeProperties("root", Map.of()));
         assertThrows(IllegalStateException.class, () -> new ExchangeProperties("root", null));
+    }
+
+    @Test
+    void manChannelBlocksBindAndResolve() throws IOException {
+        final String yml = """
+                dcre:
+                  exchange:
+                    root: /exchange
+                    clients:
+                      "[FNBCC01]":
+                        onhost-req:      { in: fnbcc01/onhost-req/in }
+                        onhost-req-man:  { in: fnbcc01/onhost-req-man/in, error: fnbcc01/onhost-req-man/error, archive: fnbcc01/onhost-req-man/archive }
+                        onhost-resp-man: { out: fnbcc01/onhost-resp-man/out }
+                        fint-req-man:    { out: fnbcc01/fint-req-man/out }
+                        fint-resp-man:   { in: fnbcc01/fint-resp-man/in }
+                """;
+        final ExchangeLayout layout = bindYaml(yml).toLayout();
+        assertResolves(layout, "FNBCC01", ExchangeChannel.ONHOST_REQ_MAN, ExchangeSub.IN, "fnbcc01", "onhost-req-man", "in");
+        assertResolves(layout, "FNBCC01", ExchangeChannel.ONHOST_RESP_MAN, ExchangeSub.OUT, "fnbcc01", "onhost-resp-man", "out");
+        assertResolves(layout, "FNBCC01", ExchangeChannel.FINT_REQ_MAN, ExchangeSub.OUT, "fnbcc01", "fint-req-man", "out");
+        assertResolves(layout, "FNBCC01", ExchangeChannel.FINT_RESP_MAN, ExchangeSub.IN, "fnbcc01", "fint-resp-man", "in");
+        // 1 (onhost-req) + 3 + 1 + 1 + 1 man leaves = 7, no phantom leaves
+        assertEquals(7, layout.allLeafDirs().size());
+    }
+
+    @Test
+    void absentManBlocksStayFailClosed() throws IOException {
+        // The shared yml ships collections channels only: man channels must throw, not fall back.
+        final ExchangeLayout layout = bindShared().toLayout();
+        for (final String client : CLIENTS) {
+            for (final ExchangeChannel channel : List.of(
+                    ExchangeChannel.ONHOST_REQ_MAN, ExchangeChannel.ONHOST_RESP_MAN,
+                    ExchangeChannel.FINT_REQ_MAN, ExchangeChannel.FINT_RESP_MAN)) {
+                assertThrows(IllegalArgumentException.class,
+                        () -> layout.resolve(client, channel, ExchangeSub.IN),
+                        "%s/%s must fail closed".formatted(client, channel.token()));
+            }
+        }
+        // and the collections leaf count is unchanged by the new fields
+        assertEquals(45, layout.allLeafDirs().size());
+    }
+
+    private static ExchangeProperties bindYaml(final String yml) throws IOException {
+        final StandardEnvironment env = new StandardEnvironment();
+        new YamlPropertySourceLoader()
+                .load("inline", new ByteArrayResource(yml.getBytes()))
+                .forEach(source -> env.getPropertySources().addLast(source));
+        return Binder.get(env).bind("dcre.exchange", ExchangeProperties.class).get();
     }
 
     private static void assertResolves(final ExchangeLayout layout, final String client,
