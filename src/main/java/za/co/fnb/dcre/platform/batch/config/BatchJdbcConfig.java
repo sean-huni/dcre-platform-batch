@@ -1,0 +1,73 @@
+package za.co.fnb.dcre.platform.batch.config;
+
+import javax.sql.DataSource;
+
+import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.repository.support.JdbcJobRepositoryFactoryBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
+
+/**
+ * SCRUM-84 (R-47, M12 piece 1): a shared, persistent JDBC {@link JobRepository}
+ * for every DCRE stage + M-family service, replacing the Boot 4.1 / Batch 6
+ * default {@code ResourcelessJobRepository}.
+ *
+ * <p><b>The flaw.</b> Spring Batch 6 flipped {@code DefaultBatchConfiguration}
+ * to return {@code ResourcelessJobRepository} (in-memory) and Boot 4.1's
+ * {@code BatchAutoConfiguration} provides only that; {@code spring.batch.jdbc.*}
+ * is no longer bound. Every service therefore ran non-persistent batch metadata,
+ * so the provisioned {@code <SVC>_BATCH_*} tables stayed empty.
+ *
+ * <p><b>The fix.</b> {@code @EnableBatchProcessing} makes Boot's
+ * {@code BatchAutoConfiguration} back off wholesale (it is
+ * {@code @ConditionalOnMissingBean(annotation = EnableBatchProcessing.class)}),
+ * and the explicit {@code jobRepository} bean below makes Batch's own
+ * {@code BatchRegistrar} skip its default Resourceless registration (it checks
+ * {@code containsBeanDefinition("jobRepository")}). The registrar still supplies
+ * the {@code JobOperator}, wired to this repository. No schema change: the
+ * {@code <SVC>_BATCH_*} tables are byte-equal to Batch 6.0.4's canonical
+ * Postgres schema (prefix + EXIT_MESSAGE widened to TEXT for CockroachDB).
+ *
+ * <p><b>Property-resolution path (verified against Batch 6.0.4 bytecode).</b>
+ * The annotation route {@code @EnableJdbcJobRepository(tablePrefix = "${...}")}
+ * is NOT used: {@code BatchRegistrar.registerJdbcJobRepository} consumes the
+ * attribute as a raw annotation constant via
+ * {@code builder.addPropertyValue("tablePrefix", annotation.tablePrefix())}, so
+ * a {@code ${dcre.batch.table-prefix}} placeholder would resolve only if the
+ * {@code PropertySourcesPlaceholderConfigurer} happens to visit a
+ * registrar-registered bean-definition property, a version-fragile ordering
+ * dependency. Instead this config builds the repository explicitly via
+ * {@link JdbcJobRepositoryFactoryBean} and injects the prefix from the typed
+ * {@link BatchProperties} ({@code dcre.batch.table-prefix}), which resolves
+ * deterministically at bean construction.
+ *
+ * <p><b>Usage.</b> {@code @Import(BatchJdbcConfig.class)} on each service (never
+ * registered in {@code META-INF/spring/...AutoConfiguration.imports}): as an
+ * {@code @AutoConfiguration} it could double-apply {@code @EnableBatchProcessing}
+ * alongside a service's own batch config, so it is an explicit-import
+ * {@code @Configuration}. Each service supplies only its own
+ * {@code dcre.batch.table-prefix}; the autoconfigured primary {@code DataSource}
+ * and {@code transactionManager} are reused as-is.
+ */
+@Configuration(proxyBeanMethods = false)
+@EnableBatchProcessing
+@EnableConfigurationProperties(BatchProperties.class)
+public class BatchJdbcConfig {
+
+    @Bean
+    JobRepository jobRepository(final DataSource dataSource,
+                                final PlatformTransactionManager transactionManager,
+                                final BatchProperties properties) throws Exception {
+        final JdbcJobRepositoryFactoryBean factory = new JdbcJobRepositoryFactoryBean();
+        factory.setDataSource(dataSource);
+        factory.setTransactionManager(transactionManager);
+        factory.setTablePrefix(properties.tablePrefix());
+        factory.afterPropertiesSet();
+        return factory.getObject();
+    }
+}

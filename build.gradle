@@ -26,6 +26,14 @@ dependencies {
     testImplementation 'org.assertj:assertj-core'
     testImplementation 'org.yaml:snakeyaml'
 
+    // SCRUM-84 persistent-JDBC-JobRepository IT: real Boot batch autoconfig
+    // (the Resourceless default, for the RED baseline) + a JDBC DataSource +
+    // Testcontainers CockroachDB. Testcontainers is NOT BOM-managed on Boot 4.
+    testImplementation 'org.springframework.boot:spring-boot-starter-batch'
+    testImplementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    testImplementation 'org.testcontainers:cockroachdb:1.21.4'
+    testRuntimeOnly 'org.postgresql:postgresql'
+
     testImplementation platform('org.junit:junit-bom:6.0.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
