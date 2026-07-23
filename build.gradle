@@ -16,6 +16,8 @@ dependencies {
     compileOnly 'org.springframework.batch:spring-batch-core:6.0.4'
     compileOnly 'org.springframework.batch:spring-batch-infrastructure:6.0.4'
     compileOnly 'org.springframework:spring-tx:7.0.8'
+    compileOnly 'org.springframework:spring-jdbc:7.0.8'
+    compileOnly 'org.springframework.boot:spring-boot-jdbc:4.1.0'
     compileOnly 'org.slf4j:slf4j-api:2.0.17'
 
     testImplementation platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
