@@ -46,13 +46,24 @@ import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
  * {@link BatchProperties} ({@code dcre.batch.table-prefix}), which resolves
  * deterministically at bean construction.
  *
- * <p><b>Usage.</b> {@code @Import(BatchJdbcConfig.class)} on each service (never
- * registered in {@code META-INF/spring/...AutoConfiguration.imports}): as an
- * {@code @AutoConfiguration} it could double-apply {@code @EnableBatchProcessing}
- * alongside a service's own batch config, so it is an explicit-import
- * {@code @Configuration}. Each service supplies only its own
+ * <p><b>Usage: {@code @Import} only, never component-scanned.</b>
+ * {@code @Import(BatchJdbcConfig.class)} on each service, and it must NOT fall
+ * under a service's {@code @ComponentScan} base package: a scan covering
+ * {@code za.co.fnb.dcre.platform.batch} would auto-activate
+ * {@code @EnableBatchProcessing} unintentionally. It is deliberately NOT
+ * registered in {@code META-INF/spring/...AutoConfiguration.imports} either: as
+ * an {@code @AutoConfiguration} it could double-apply {@code @EnableBatchProcessing}
+ * alongside a service's own batch config. Each service supplies only its own
  * {@code dcre.batch.table-prefix}; the autoconfigured primary {@code DataSource}
  * and {@code transactionManager} are reused as-is.
+ *
+ * <p><b>CRDB isolation.</b> The framework create/restart transaction runs at
+ * {@code ISOLATION_READ_COMMITTED}, not Batch's {@code SERIALIZABLE} default: a
+ * {@code 40001} retry-serializable abort at job launch is outside the step
+ * tasklet, so it is NOT caught by {@code CrdbRetryExceptionHandler}. The
+ * {@code JOB_INST_UN} unique constraint still prevents duplicate instances, so
+ * dropping to READ_COMMITTED removes the contention surface without weakening the
+ * single-instance guarantee.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableBatchProcessing
@@ -67,6 +78,7 @@ public class BatchJdbcConfig {
         factory.setDataSource(dataSource);
         factory.setTransactionManager(transactionManager);
         factory.setTablePrefix(properties.tablePrefix());
+        factory.setIsolationLevelForCreate("ISOLATION_READ_COMMITTED");
         factory.afterPropertiesSet();
         return factory.getObject();
     }

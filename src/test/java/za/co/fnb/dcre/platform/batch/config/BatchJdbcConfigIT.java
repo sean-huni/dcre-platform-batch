@@ -15,10 +15,14 @@ import org.springframework.batch.infrastructure.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -115,6 +119,38 @@ class BatchJdbcConfigIT {
 
     private JobParameters runParams(final String run) {
         return new JobParametersBuilder().addString("run.id", run, true).toJobParameters();
+    }
+
+    @Test
+    void failsClosedWhenPrefixAbsent() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(PropsOnly.class)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("dcre.batch.table-prefix");
+                });
+    }
+
+    @Test
+    void failsClosedWhenPrefixIsBareBatchDefault() {
+        new ApplicationContextRunner()
+                .withPropertyValues("dcre.batch.table-prefix=BATCH_")
+                .withUserConfiguration(PropsOnly.class)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("dcre.batch.table-prefix");
+                });
+    }
+
+    @Configuration
+    @EnableConfigurationProperties(BatchProperties.class)
+    static class PropsOnly {
     }
 
     @SpringBootConfiguration
