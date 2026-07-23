@@ -1,0 +1,5 @@
+# SCRUM-90 (M12): ship the fleet-wide READ COMMITTED batch-datasource default to every service
+# that depends on platform-batch. EnvironmentPostProcessor is discovered via SpringFactoriesLoader
+# (this file), not the AutoConfiguration.imports mechanism.
+org.springframework.boot.EnvironmentPostProcessor=\
+  za.co.fnb.dcre.platform.batch.config.BatchDatasourceEnvironmentPostProcessor

@@ -5,6 +5,7 @@ import javax.sql.DataSource;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.repository.support.JdbcJobRepositoryFactoryBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -64,6 +65,16 @@ import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
  * {@code JOB_INST_UN} unique constraint still prevents duplicate instances, so
  * dropping to READ_COMMITTED removes the contention surface without weakening the
  * single-instance guarantee.
+ *
+ * <p><b>Fleet READ COMMITTED + fail-fast (SCRUM-90).</b> Beyond create/restart, EVERY pooled
+ * connection now runs at READ COMMITTED, shipped fleet-wide from
+ * {@code classpath:dcre-batch-datasource.yml} by {@link BatchDatasourceEnvironmentPostProcessor}:
+ * the persistent JobRepository writes {@code <SVC>_BATCH_*} metadata inside the chunk-commit
+ * transaction, so a {@code 40001} can surface AT COMMIT under SERIALIZABLE, outside the tasklet
+ * retry handler. The {@link ReadCommittedStartupAssertion} bean below opens a real transaction at
+ * startup and refuses to start any service whose primary pool is not actually READ COMMITTED, so
+ * no service silently ships at SERIALIZABLE. Opt out only in tests that do not exercise isolation,
+ * via {@code dcre.batch.assert-read-committed=false}.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableBatchProcessing
@@ -81,5 +92,12 @@ public class BatchJdbcConfig {
         factory.setIsolationLevelForCreate("ISOLATION_READ_COMMITTED");
         factory.afterPropertiesSet();
         return factory.getObject();
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "dcre.batch", name = "assert-read-committed",
+            havingValue = "true", matchIfMissing = true)
+    ReadCommittedStartupAssertion readCommittedStartupAssertion(final DataSource dataSource) {
+        return new ReadCommittedStartupAssertion(dataSource);
     }
 }

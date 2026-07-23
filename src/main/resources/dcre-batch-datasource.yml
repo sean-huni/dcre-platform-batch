@@ -1,0 +1,21 @@
+# SCRUM-90 (M12): fleet-wide CockroachDB READ COMMITTED for the batch datasource.
+#
+# Single source of truth for the batch pool isolation. Contributed to EVERY service that depends
+# on platform-batch by BatchDatasourceEnvironmentPostProcessor (registered in
+# META-INF/spring.factories), so all 13 stage services inherit it from ONE place instead of a
+# per-service application.yml line. It is added as a LOW-precedence default: a service may still
+# override spring.datasource.hikari.transaction-isolation, and the fail-fast
+# ReadCommittedStartupAssertion (wired via @Import(BatchJdbcConfig.class)) refuses to start any
+# service whose primary pool is not actually READ COMMITTED.
+#
+# Why: the Batch 6 persistent JobRepository (M12) writes <SVC>_BATCH_* metadata inside the
+# chunk-commit transaction. Under CRDB SERIALIZABLE a sibling pod's StaleExecutionSweeper scan of
+# <SVC>_BATCH_STEP_EXECUTION forms an anti-dependency with a running job's chunk commit, surfacing
+# an uncatchable 40001 (RETRY_SERIALIZABLE) AT COMMIT (outside the tasklet retry handler). Running
+# every pooled connection at READ COMMITTED removes that contention surface. Zero-dup is preserved
+# because idempotency comes from full-identity guarded UPSERTs (INSERT ... ON CONFLICT
+# (client, e2e)), not SERIALIZABLE. The cluster carries sql.txn.read_committed_isolation.enabled=true.
+spring:
+  datasource:
+    hikari:
+      transaction-isolation: TRANSACTION_READ_COMMITTED
