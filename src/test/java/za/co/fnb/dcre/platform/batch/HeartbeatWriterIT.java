@@ -131,6 +131,48 @@ class HeartbeatWriterIT {
     }
 
     @Test
+    void dbFailureWarnsOncePerErrorClassAndDoesNotThrow() {
+        final JdbcTemplate broken = new JdbcTemplate(DataSourceBuilder.create()
+                .type(SimpleDriverDataSource.class)
+                .driverClassName("org.postgresql.Driver")
+                .url("jdbc:postgresql://127.0.0.1:1/agt_ops?connectTimeout=1&sslmode=disable")
+                .username("root").password("").build());
+        final HeartbeatWriter writer = new HeartbeatWriter(broken, "crr-db-down", "pod-alpha");
+        final ListAppender<ILoggingEvent> appender = attachAppender();
+
+        writer.beforeJob(execution());
+        assertThatCode(writer::tick).doesNotThrowAnyException();
+        assertThatCode(writer::tick).doesNotThrowAnyException();
+
+        final long warnings = appender.list.stream()
+                .filter(e -> e.getLevel() == Level.WARN)
+                .filter(e -> e.getFormattedMessage().contains("dcre.agtops-db-url"))
+                .count();
+        assertThat(warnings)
+                .as("a DB-connection failure warns once per error class, names the URL, never throws")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void refCountKeepsHeartbeatWhileASecondJobRuns() {
+        final String jobName = seedIntent();
+        final HeartbeatWriter writer = new HeartbeatWriter(jdbc, jobName, "pod-alpha");
+
+        writer.beforeJob(execution());   // job 1 of this JVM starts
+        writer.beforeJob(execution());   // job 2 of this JVM starts
+        writer.afterJob(execution());    // job 1 ends; job 2 still running
+        writer.tick();
+        final Timestamp whileSecondRuns = heartbeatOf(jobName);
+        assertThat(whileSecondRuns)
+                .as("heartbeat continues while a second job of the pod still runs").isNotNull();
+
+        writer.afterJob(execution());    // job 2 ends; no job of this pod runs
+        writer.tick();
+        assertThat(heartbeatOf(jobName))
+                .as("heartbeat stops once the last job finishes").isEqualTo(whileSecondRuns);
+    }
+
+    @Test
     void scheduledIntervalPlaceholderIsWired() throws Exception {
         final Scheduled scheduled = HeartbeatWriter.class.getMethod("tick").getAnnotation(Scheduled.class);
         assertThat(scheduled).isNotNull();
