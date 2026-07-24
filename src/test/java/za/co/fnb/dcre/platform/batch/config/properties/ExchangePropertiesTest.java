@@ -52,9 +52,10 @@ class ExchangePropertiesTest {
     }
 
     @Test
-    void allLeafDirsCoversThreeClientsFiveChannelsThreeSubs() throws IOException {
-        // 3 clients * 5 channels * 3 subs (each channel has exactly in/out + error + archive) = 45
-        assertEquals(45, bindShared().toLayout().allLeafDirs().size());
+    void allLeafDirsCoversThreeClientsNineChannelsThreeSubs() throws IOException {
+        // 3 clients * 9 channels (5 collections + 4 mandate, SCRUM-79) * 3 subs
+        // (each channel has exactly in/out + error + archive) = 81
+        assertEquals(81, bindShared().toLayout().allLeafDirs().size());
     }
 
     @Test
@@ -94,20 +95,20 @@ class ExchangePropertiesTest {
     }
 
     @Test
-    void absentManBlocksStayFailClosed() throws IOException {
-        // The shared yml ships collections channels only: man channels must throw, not fall back.
+    void shippedYmlResolvesManChannels() throws IOException {
+        // SCRUM-79: the shared yml now wires the 4 mandate channels per client; they resolve, not fail closed.
         final ExchangeLayout layout = bindShared().toLayout();
         for (final String client : CLIENTS) {
             for (final ExchangeChannel channel : List.of(
                     ExchangeChannel.ONHOST_REQ_MAN, ExchangeChannel.ONHOST_RESP_MAN,
                     ExchangeChannel.FINT_REQ_MAN, ExchangeChannel.FINT_RESP_MAN)) {
-                assertThrows(IllegalArgumentException.class,
-                        () -> layout.resolve(client, channel, ExchangeSub.IN),
-                        "%s/%s must fail closed".formatted(client, channel.token()));
+                final ExchangeSub sub = (channel == ExchangeChannel.ONHOST_RESP_MAN
+                        || channel == ExchangeChannel.FINT_REQ_MAN) ? ExchangeSub.OUT : ExchangeSub.IN;
+                layout.resolve(client, channel, sub); // throws IllegalArgumentException if unwired -> test fails
             }
         }
-        // and the collections leaf count is unchanged by the new fields
-        assertEquals(45, layout.allLeafDirs().size());
+        // 5 collections + 4 mandate channels, 3 subs, 3 clients = 81
+        assertEquals(81, layout.allLeafDirs().size());
     }
 
     private static ExchangeProperties bindYaml(final String yml) throws IOException {

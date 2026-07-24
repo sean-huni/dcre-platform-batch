@@ -79,7 +79,7 @@ class ExchangeAutoConfigurationTest {
                     bootstrap.run(null);
 
                     final ExchangeLayout layout = context.getBean(ExchangeLayout.class);
-                    assertEquals(45, layout.allLeafDirs().size());
+                    assertEquals(81, layout.allLeafDirs().size());
                     for (final Path leaf : layout.allLeafDirs()) {
                         assertTrue(Files.isDirectory(leaf), () -> "leaf dir not created: " + leaf);
                     }

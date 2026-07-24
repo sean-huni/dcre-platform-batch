@@ -12,15 +12,27 @@ dcre:
         onhost-resp:     { out: fnbcc01/onhost-resp/out,   error: fnbcc01/onhost-resp/error,     archive: fnbcc01/onhost-resp/archive }
         fint-req:        { out: fnbcc01/fint-req/out,       error: fnbcc01/fint-req/error,        archive: fnbcc01/fint-req/archive }
         fint-resp:       { in: fnbcc01/fint-resp/in,        error: fnbcc01/fint-resp/error,       archive: fnbcc01/fint-resp/archive }
+        onhost-req-man:  { in: fnbcc01/onhost-req-man/in,   error: fnbcc01/onhost-req-man/error,  archive: fnbcc01/onhost-req-man/archive }
+        onhost-resp-man: { out: fnbcc01/onhost-resp-man/out, error: fnbcc01/onhost-resp-man/error, archive: fnbcc01/onhost-resp-man/archive }
+        fint-req-man:    { out: fnbcc01/fint-req-man/out,   error: fnbcc01/fint-req-man/error,    archive: fnbcc01/fint-req-man/archive }
+        fint-resp-man:   { in: fnbcc01/fint-resp-man/in,    error: fnbcc01/fint-resp-man/error,   archive: fnbcc01/fint-resp-man/archive }
       "[FNBCC02]":
         onhost-req:      { in: fnbcc02/onhost-req/in,      error: fnbcc02/onhost-req/error,      archive: fnbcc02/onhost-req/archive }
         onhost-req-endo: { in: fnbcc02/onhost-req-endo/in, error: fnbcc02/onhost-req-endo/error, archive: fnbcc02/onhost-req-endo/archive }
         onhost-resp:     { out: fnbcc02/onhost-resp/out,   error: fnbcc02/onhost-resp/error,     archive: fnbcc02/onhost-resp/archive }
         fint-req:        { out: fnbcc02/fint-req/out,       error: fnbcc02/fint-req/error,        archive: fnbcc02/fint-req/archive }
         fint-resp:       { in: fnbcc02/fint-resp/in,        error: fnbcc02/fint-resp/error,       archive: fnbcc02/fint-resp/archive }
+        onhost-req-man:  { in: fnbcc02/onhost-req-man/in,   error: fnbcc02/onhost-req-man/error,  archive: fnbcc02/onhost-req-man/archive }
+        onhost-resp-man: { out: fnbcc02/onhost-resp-man/out, error: fnbcc02/onhost-resp-man/error, archive: fnbcc02/onhost-resp-man/archive }
+        fint-req-man:    { out: fnbcc02/fint-req-man/out,   error: fnbcc02/fint-req-man/error,    archive: fnbcc02/fint-req-man/archive }
+        fint-resp-man:   { in: fnbcc02/fint-resp-man/in,    error: fnbcc02/fint-resp-man/error,   archive: fnbcc02/fint-resp-man/archive }
       "[FNBRF01]":
         onhost-req:      { in: fnbrf01/onhost-req/in,      error: fnbrf01/onhost-req/error,      archive: fnbrf01/onhost-req/archive }
         onhost-req-endo: { in: fnbrf01/onhost-req-endo/in, error: fnbrf01/onhost-req-endo/error, archive: fnbrf01/onhost-req-endo/archive }
         onhost-resp:     { out: fnbrf01/onhost-resp/out,   error: fnbrf01/onhost-resp/error,     archive: fnbrf01/onhost-resp/archive }
         fint-req:        { out: fnbrf01/fint-req/out,       error: fnbrf01/fint-req/error,        archive: fnbrf01/fint-req/archive }
         fint-resp:       { in: fnbrf01/fint-resp/in,        error: fnbrf01/fint-resp/error,       archive: fnbrf01/fint-resp/archive }
+        onhost-req-man:  { in: fnbrf01/onhost-req-man/in,   error: fnbrf01/onhost-req-man/error,  archive: fnbrf01/onhost-req-man/archive }
+        onhost-resp-man: { out: fnbrf01/onhost-resp-man/out, error: fnbrf01/onhost-resp-man/error, archive: fnbrf01/onhost-resp-man/archive }
+        fint-req-man:    { out: fnbrf01/fint-req-man/out,   error: fnbrf01/fint-req-man/error,    archive: fnbrf01/fint-req-man/archive }
+        fint-resp-man:   { in: fnbrf01/fint-resp-man/in,    error: fnbrf01/fint-resp-man/error,   archive: fnbrf01/fint-resp-man/archive }
