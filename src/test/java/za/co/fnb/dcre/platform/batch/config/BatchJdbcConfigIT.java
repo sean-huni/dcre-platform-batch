@@ -48,11 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code ResourcelessJobRepository}; assertion (a) fails, execution ids stay a
  * constant {@code 1}, and {@code IT_BATCH_JOB_INSTANCE} stays empty.
  */
-@SpringBootTest(properties = {
-        "spring.batch.job.enabled=false",
-        // SCRUM-90: this IT proves the persistent JobRepository, not datasource isolation; opt out
-        // of the fleet ReadCommittedStartupAssertion so its container need not honor READ COMMITTED.
-        "dcre.batch.assert-read-committed=false"})
+@SpringBootTest(properties = "spring.batch.job.enabled=false")
 class BatchJdbcConfigIT {
 
     static final CockroachContainer CRDB =
