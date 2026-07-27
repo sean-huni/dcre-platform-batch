@@ -6,7 +6,6 @@ import org.springframework.batch.core.configuration.annotation.EnableBatchProces
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.repository.support.JdbcJobRepositoryFactoryBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -55,19 +54,18 @@ import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
  * registered in {@code META-INF/spring/...AutoConfiguration.imports} either: as
  * an {@code @AutoConfiguration} it could double-apply {@code @EnableBatchProcessing}
  * alongside a service's own batch config. Each service supplies only its own
- * {@code dcre.batch.table-prefix}; no extra property or env var is introduced.
+ * {@code dcre.batch.table-prefix}; the autoconfigured primary {@code DataSource}
+ * and {@code transactionManager} are reused as-is. ONE datasource and ONE transaction
+ * manager is a correctness requirement, not a simplification: a separate metadata
+ * connection would commit step metadata outside the business chunk transaction, so a
+ * kill between the two commits would leave the two stores disagreeing.
  *
- * <p><b>The metadata connection (SCRUM-101).</b> On CockroachDB the repository does
- * NOT run on the autoconfigured primary {@code DataSource}: it gets a small dedicated
- * pool derived from the same {@code spring.datasource.*} url/user/password plus the
- * {@code multiple_active_portals_enabled} session variable, because Batch 6.0.4's
- * {@code getLastStepExecution} opens a second portal on one connection and CockroachDB
- * rejects that on every restart. The dedicated pool brings its own
- * {@code DataSourceTransactionManager} so the repository's transactions apply to its
- * own connection (the long-standing separate-batch-datasource topology: metadata
- * updates then commit independently of a business chunk transaction). Where the probe
- * does not see CockroachDB, the primary {@code DataSource} and
- * {@code transactionManager} are reused exactly as before. See {@link BatchMetadataPool}.
+ * <p><b>Restart on CockroachDB (SCRUM-101).</b> The repository is built from
+ * {@link PortalSafeJobRepositoryFactoryBean}, which is the stock factory with one DAO
+ * substituted: Batch 6.0.4's {@code JdbcStepExecutionDao.getLastStepExecution} nests a
+ * second query inside its own open {@code ResultSet}, which CockroachDB rejects, so every
+ * restart of an existing job instance died. {@link PortalSafeStepExecutionDao} performs
+ * the same read sequentially. No session variable, no preview feature, no second pool.
  *
  * <p><b>CRDB isolation.</b> The framework create/restart transaction runs at
  * {@code ISOLATION_READ_COMMITTED}, not Batch's {@code SERIALIZABLE} default: a
@@ -83,19 +81,18 @@ import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
 public class BatchJdbcConfig {
 
     @Bean
-    BatchMetadataPool batchMetadataPool(final DataSourceProperties dataSourceProperties,
-                                        final DataSource dataSource) {
-        return new BatchMetadataPool(dataSourceProperties, dataSource);
-    }
-
-    @Bean
     JobRepository jobRepository(final DataSource dataSource,
                                 final PlatformTransactionManager transactionManager,
-                                final BatchProperties properties,
-                                final BatchMetadataPool metadataPool) throws Exception {
-        final JdbcJobRepositoryFactoryBean factory = new JdbcJobRepositoryFactoryBean();
-        factory.setDataSource(metadataPool.dataSourceOr(dataSource));
-        factory.setTransactionManager(metadataPool.transactionManagerOr(transactionManager));
+                                final BatchProperties properties) throws Exception {
+        // Stock JdbcJobRepositoryFactoryBean except for JdbcStepExecutionDao.getLastStepExecution:
+        // in spring-batch-core 6.0.4 that method (lines 331-358) calls getJobParameters
+        // (JdbcJobExecutionDao line 450) from line 341, inside its own open ResultSet, and
+        // CockroachDB rejects the second portal. See PortalSafeStepExecutionDao. The deprecated
+        // JobRepositoryFactoryBean it ultimately extends goes away in Batch 6.2 or later, which is
+        // acceptable: that removal breaks the COMPILE, loudly, never the runtime silently.
+        final JdbcJobRepositoryFactoryBean factory = new PortalSafeJobRepositoryFactoryBean();
+        factory.setDataSource(dataSource);
+        factory.setTransactionManager(transactionManager);
         factory.setTablePrefix(properties.tablePrefix());
         factory.setIsolationLevelForCreate("ISOLATION_READ_COMMITTED");
         factory.afterPropertiesSet();

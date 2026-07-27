@@ -7,11 +7,15 @@ import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.job.parameters.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobOperator;
+import org.springframework.batch.core.partition.Partitioner;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.repository.support.ResourcelessJobRepository;
+import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.infrastructure.item.ExecutionContext;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
+import org.springframework.core.task.VirtualThreadTaskExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -26,16 +30,11 @@ import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.testcontainers.containers.CockroachContainer;
-import org.testcontainers.utility.DockerImageName;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
-import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,39 +51,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = "spring.batch.job.enabled=false")
 class BatchJdbcConfigIT {
 
-    static final CockroachContainer CRDB =
-            new CockroachContainer(DockerImageName.parse("cockroachdb/cockroach:v26.2.3"));
+    /** Partitions in the CTV shape: {@code dcre.ctv.max-partitions} defaults to 5. */
+    private static final int PARTITIONS = 5;
 
     static {
-        CRDB.start();
-        applyBatchSchema();
-    }
-
-    static void applyBatchSchema() {
-        try (InputStream in = BatchJdbcConfigIT.class.getResourceAsStream("/batch-metadata-it.sql");
-             Connection c = DriverManager.getConnection(CRDB.getJdbcUrl(), CRDB.getUsername(), CRDB.getPassword())) {
-            final String script = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            for (final String raw : script.split(";")) {
-                final String stmt = Arrays.stream(raw.split("\n"))
-                        .filter(line -> !line.trim().startsWith("--"))
-                        .reduce("", (a, b) -> a + "\n" + b).trim();
-                if (!stmt.isEmpty()) {
-                    try (Statement s = c.createStatement()) {
-                        s.execute(stmt);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("failed to apply IT_BATCH_ schema", e);
-        }
+        ItBatchMetadataDb.ensureStarted();
     }
 
     @DynamicPropertySource
     static void props(final DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", CRDB::getJdbcUrl);
-        registry.add("spring.datasource.username", CRDB::getUsername);
-        registry.add("spring.datasource.password", CRDB::getPassword);
-        registry.add("dcre.batch.table-prefix", () -> "IT_BATCH_");
+        registry.add("spring.datasource.url", ItBatchMetadataDb::url);
+        registry.add("spring.datasource.username", ItBatchMetadataDb::username);
+        registry.add("spring.datasource.password", ItBatchMetadataDb::password);
+        registry.add("dcre.batch.table-prefix", () -> ItBatchMetadataDb.TABLE_PREFIX);
     }
 
     @Autowired
@@ -98,6 +77,9 @@ class BatchJdbcConfigIT {
 
     @Autowired
     Job restartItJob;
+
+    @Autowired
+    Job partitionedItJob;
 
     @Autowired
     JdbcTemplate jdbc;
@@ -132,8 +114,10 @@ class BatchJdbcConfigIT {
      * CockroachDB rejects the second portal ("unimplemented: multiple active portals
      * is in preview"), Hikari evicts the broken connection, and the restart dies.
      *
-     * <p>Red baseline (before the dedicated metadata DataSource): the restart launch
-     * throws / leaves the execution FAILED with the portal error in its exit message.
+     * <p>Red baseline (with the stock DAO): the restart launch fails with a
+     * {@code TransactionSystemException: JDBC rollback failed} whose logged cause is the
+     * portal error raised from {@code JdbcStepExecutionDao.getLastStepExecution:341} via
+     * {@code JdbcJobExecutionDao.getJobParameters:450}.
      */
     @Test
     void restartsAFailedInstanceWithoutTrippingMultipleActivePortals() throws Exception {
@@ -146,6 +130,36 @@ class BatchJdbcConfigIT {
         final JobExecution restarted = jobOperator.start(restartItJob, params);
         assertThat(restarted.getAllFailureExceptions()).isEmpty();
         assertThat(restarted.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+    }
+
+    /**
+     * SCRUM-101 Red -> Green in the shape that actually died, CTV's 5-way partitioned
+     * step. {@code SimpleStepExecutionSplitter} (line 137) calls
+     * {@code getLastStepExecution} ONCE PER PARTITION, so a partitioned restart runs the
+     * defective nested read five times over, on five different step names.
+     *
+     * <p>Red baseline (with the stock DAO): the restart never reaches the splitter, it
+     * already dies on the master step's own lookup, and no partition is re-created.
+     */
+    @Test
+    void restartsAPartitionedInstanceInTheCtvShape() throws Exception {
+        final JobParameters params =
+                new JobParametersBuilder().addString("restart.id", "partitions", true).toJobParameters();
+
+        final JobExecution failed = jobOperator.start(partitionedItJob, params);
+        assertThat(failed.getStatus()).as("every partition fails on purpose").isEqualTo(BatchStatus.FAILED);
+        assertThat(stepExecutions("partitionWorkerStep:partition")).isEqualTo(PARTITIONS);
+
+        final JobExecution restarted = jobOperator.start(partitionedItJob, params);
+        assertThat(restarted.getAllFailureExceptions()).isEmpty();
+        assertThat(restarted.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(stepExecutions("partitionWorkerStep:partition")).isEqualTo(2 * PARTITIONS);
+    }
+
+    private int stepExecutions(final String stepNamePrefix) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM IT_BATCH_STEP_EXECUTION WHERE STEP_NAME LIKE ?",
+                Integer.class, stepNamePrefix + "%");
     }
 
     @Test
@@ -209,6 +223,42 @@ class BatchJdbcConfigIT {
                             }, transactionManager)
                             .build())
                     .build();
+        }
+
+        // CTV's shape (CtvJobConfig.validationStep): a master step fanning a worker step
+        // across 5 partitions named partition0..partition4 on virtual threads. Every
+        // partition fails its first execution, so the second launch restarts all five.
+        @Bean
+        Job partitionedItJob(final JobRepository jobRepository, final PlatformTransactionManager transactionManager) {
+            final AtomicInteger attempts = new AtomicInteger();
+            final Step worker = new StepBuilder("partitionWorkerStep", jobRepository)
+                    .tasklet((contribution, chunkContext) -> {
+                        if (attempts.incrementAndGet() <= PARTITIONS) {
+                            throw new IllegalStateException("planned first-attempt partition failure");
+                        }
+                        return RepeatStatus.FINISHED;
+                    }, transactionManager)
+                    .build();
+            return new JobBuilder("partitionedItJob", jobRepository)
+                    .start(new StepBuilder("partitionMasterStep", jobRepository)
+                            .partitioner("partitionWorkerStep", fixedGrid())
+                            .step(worker)
+                            .gridSize(PARTITIONS)
+                            .taskExecutor(new VirtualThreadTaskExecutor("it-part-"))
+                            .build())
+                    .build();
+        }
+
+        private static Partitioner fixedGrid() {
+            return gridSize -> {
+                final Map<String, ExecutionContext> partitions = new LinkedHashMap<>();
+                for (int i = 0; i < gridSize; i++) {
+                    final ExecutionContext context = new ExecutionContext();
+                    context.putInt("partitionIndex", i);
+                    partitions.put("partition" + i, context);
+                }
+                return partitions;
+            };
         }
     }
 }
