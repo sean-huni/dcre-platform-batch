@@ -5,7 +5,8 @@ plugins {
 group = 'za.co.fnb.dcre'
 version = '0.1.0'
 java {
-    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
     withSourcesJar()
 }
 repositories { mavenCentral(); mavenLocal() }
