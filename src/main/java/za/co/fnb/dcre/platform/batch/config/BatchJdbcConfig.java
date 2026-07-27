@@ -55,7 +55,17 @@ import za.co.fnb.dcre.platform.batch.config.properties.BatchProperties;
  * an {@code @AutoConfiguration} it could double-apply {@code @EnableBatchProcessing}
  * alongside a service's own batch config. Each service supplies only its own
  * {@code dcre.batch.table-prefix}; the autoconfigured primary {@code DataSource}
- * and {@code transactionManager} are reused as-is.
+ * and {@code transactionManager} are reused as-is. ONE datasource and ONE transaction
+ * manager is a correctness requirement, not a simplification: a separate metadata
+ * connection would commit step metadata outside the business chunk transaction, so a
+ * kill between the two commits would leave the two stores disagreeing.
+ *
+ * <p><b>Restart on CockroachDB (SCRUM-101).</b> The repository is built from
+ * {@link PortalSafeJobRepositoryFactoryBean}, which is the stock factory with one DAO
+ * substituted: Batch 6.0.4's {@code JdbcStepExecutionDao.getLastStepExecution} nests a
+ * second query inside its own open {@code ResultSet}, which CockroachDB rejects, so every
+ * restart of an existing job instance died. {@link PortalSafeStepExecutionDao} performs
+ * the same read sequentially. No session variable, no preview feature, no second pool.
  *
  * <p><b>CRDB isolation.</b> The framework create/restart transaction runs at
  * {@code ISOLATION_READ_COMMITTED}, not Batch's {@code SERIALIZABLE} default: a
@@ -74,7 +84,16 @@ public class BatchJdbcConfig {
     JobRepository jobRepository(final DataSource dataSource,
                                 final PlatformTransactionManager transactionManager,
                                 final BatchProperties properties) throws Exception {
-        final JdbcJobRepositoryFactoryBean factory = new JdbcJobRepositoryFactoryBean();
+        // Stock JdbcJobRepositoryFactoryBean except for JdbcStepExecutionDao.getLastStepExecution:
+        // in spring-batch-core 6.0.4 that method (lines 331-358) calls getJobParameters
+        // (JdbcJobExecutionDao line 450) from line 341, inside its own open ResultSet, and
+        // CockroachDB rejects the second portal. See PortalSafeStepExecutionDao. The deprecated
+        // JobRepositoryFactoryBean it ultimately extends goes away in Batch 6.2 or later, and that
+        // removal will NOT break this module's compile: platform-batch takes spring-batch-core
+        // compileOnly at its own pinned springBatchVersion, so a consuming service's Batch upgrade
+        // compiles here unchanged and the override runs against the consumer's runtime version
+        // instead. The guard is PortalSafeOverrideGuardTest, which fails when that pin moves.
+        final JdbcJobRepositoryFactoryBean factory = new PortalSafeJobRepositoryFactoryBean();
         factory.setDataSource(dataSource);
         factory.setTransactionManager(transactionManager);
         factory.setTablePrefix(properties.tablePrefix());
