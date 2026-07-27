@@ -35,6 +35,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -96,6 +97,9 @@ class BatchJdbcConfigIT {
     Job itJob;
 
     @Autowired
+    Job restartItJob;
+
+    @Autowired
     JdbcTemplate jdbc;
 
     @Test
@@ -119,6 +123,29 @@ class BatchJdbcConfigIT {
 
     private JobParameters runParams(final String run) {
         return new JobParametersBuilder().addString("run.id", run, true).toJobParameters();
+    }
+
+    /**
+     * SCRUM-101 Red -> Green. Restarting an existing job instance makes Batch 6.0.4's
+     * {@code JdbcStepExecutionDao.getLastStepExecution} run a nested
+     * {@code getJobParameters} query while its own {@code ResultSet} is still open.
+     * CockroachDB rejects the second portal ("unimplemented: multiple active portals
+     * is in preview"), Hikari evicts the broken connection, and the restart dies.
+     *
+     * <p>Red baseline (before the dedicated metadata DataSource): the restart launch
+     * throws / leaves the execution FAILED with the portal error in its exit message.
+     */
+    @Test
+    void restartsAFailedInstanceWithoutTrippingMultipleActivePortals() throws Exception {
+        final JobParameters params =
+                new JobParametersBuilder().addString("restart.id", "portals", true).toJobParameters();
+
+        final JobExecution failed = jobOperator.start(restartItJob, params);
+        assertThat(failed.getStatus()).as("first attempt fails on purpose").isEqualTo(BatchStatus.FAILED);
+
+        final JobExecution restarted = jobOperator.start(restartItJob, params);
+        assertThat(restarted.getAllFailureExceptions()).isEmpty();
+        assertThat(restarted.getStatus()).isEqualTo(BatchStatus.COMPLETED);
     }
 
     @Test
@@ -163,6 +190,23 @@ class BatchJdbcConfigIT {
             return new JobBuilder("itJob", jobRepository)
                     .start(new StepBuilder("itStep", jobRepository)
                             .tasklet((contribution, chunkContext) -> RepeatStatus.FINISHED, transactionManager)
+                            .build())
+                    .build();
+        }
+
+        // Fails its first execution so the second launch of the same instance takes the
+        // RESTART path, where getLastStepExecution reads a prior step-execution row.
+        @Bean
+        Job restartItJob(final JobRepository jobRepository, final PlatformTransactionManager transactionManager) {
+            final AtomicBoolean firstAttempt = new AtomicBoolean(true);
+            return new JobBuilder("restartItJob", jobRepository)
+                    .start(new StepBuilder("restartItStep", jobRepository)
+                            .tasklet((contribution, chunkContext) -> {
+                                if (firstAttempt.getAndSet(false)) {
+                                    throw new IllegalStateException("planned first-attempt failure");
+                                }
+                                return RepeatStatus.FINISHED;
+                            }, transactionManager)
                             .build())
                     .build();
         }
