@@ -88,8 +88,11 @@ public class BatchJdbcConfig {
         // in spring-batch-core 6.0.4 that method (lines 331-358) calls getJobParameters
         // (JdbcJobExecutionDao line 450) from line 341, inside its own open ResultSet, and
         // CockroachDB rejects the second portal. See PortalSafeStepExecutionDao. The deprecated
-        // JobRepositoryFactoryBean it ultimately extends goes away in Batch 6.2 or later, which is
-        // acceptable: that removal breaks the COMPILE, loudly, never the runtime silently.
+        // JobRepositoryFactoryBean it ultimately extends goes away in Batch 6.2 or later, and that
+        // removal will NOT break this module's compile: platform-batch takes spring-batch-core
+        // compileOnly at its own pinned springBatchVersion, so a consuming service's Batch upgrade
+        // compiles here unchanged and the override runs against the consumer's runtime version
+        // instead. The guard is PortalSafeOverrideGuardTest, which fails when that pin moves.
         final JdbcJobRepositoryFactoryBean factory = new PortalSafeJobRepositoryFactoryBean();
         factory.setDataSource(dataSource);
         factory.setTransactionManager(transactionManager);

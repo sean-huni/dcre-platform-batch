@@ -13,8 +13,9 @@ dependencies {
     api 'za.co.fnb.dcre:platform-files:0.1.0'
     compileOnly 'org.springframework.boot:spring-boot:4.1.0'
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure:4.1.0'
-    compileOnly 'org.springframework.batch:spring-batch-core:6.0.4'
-    compileOnly 'org.springframework.batch:spring-batch-infrastructure:6.0.4'
+    // springBatchVersion lives in gradle.properties: it is guarded, see the note there.
+    compileOnly "org.springframework.batch:spring-batch-core:${springBatchVersion}"
+    compileOnly "org.springframework.batch:spring-batch-infrastructure:${springBatchVersion}"
     compileOnly 'org.springframework:spring-tx:7.0.8'
     compileOnly 'org.springframework:spring-jdbc:7.0.8'
     compileOnly 'org.springframework.boot:spring-boot-jdbc:4.1.0'
@@ -24,7 +25,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot'
     testImplementation 'org.springframework.boot:spring-boot-autoconfigure'
     testImplementation 'org.springframework.boot:spring-boot-test'
-    testImplementation 'org.springframework.batch:spring-batch-core:6.0.4'
+    testImplementation "org.springframework.batch:spring-batch-core:${springBatchVersion}"
     testImplementation 'org.assertj:assertj-core'
     testImplementation 'org.yaml:snakeyaml'
 
