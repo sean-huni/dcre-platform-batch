@@ -50,7 +50,8 @@ additionally import the shipped layout yml.
 | `dcre-exchange-layout.yml` | Shared classpath resource: 3 clients (FNBCC01, FNBCC02, FNBRF01) x 5 channels x 3 subs = 45 leaf directories; imported by CIR/CRW/PRG via `spring.config.import: classpath:dcre-exchange-layout.yml` |
 | `CrdbRetryExceptionHandler` | Step-level retry for CockroachDB serialization aborts (SQLSTATE 40001, surfacing as `TransientDataAccessException`): max 5 attempts, exponential backoff from 100 ms with jitter, per-`RepeatContext` attempt budget. Register on TASKLET steps only (`.exceptionHandler(new CrdbRetryExceptionHandler("CIR"))`), never on chunk-oriented steps: swallowing at the repeat level re-runs the whole iteration |
 | `OutcomeFileWriter` | SYNTHETIC-CONTRACT (R-35): writes `<exchangeRoot>/outcomes/<jobName>` atomically via `StagedWrite`; the AGT-service business-verdict seam |
-| `ExitCodeMain` | R-34: `System.exit(SpringApplication.exit(SpringApplication.run(...)))` so the container exit code carries the Batch outcome to the K8s Job |
+| `ExitCodeMain` | R-34: `System.exit(SpringApplication.exit(...))` so the container exit code carries the Batch outcome to the K8s Job. Reserves `CONFIG_FAILURE_EXIT_CODE` = 78 (EX_CONFIG, sysexits.h) for any failure BEFORE the runner phase: that is infrastructure, not a job verdict, and AGT classifies 78 as `TECH_CONFIG_FAILED` on its own bounded budget instead of burning the `TECH_FAILED` orphan budget. A failure once the runner phase has begun propagates unchanged (JVM status 1) |
+| `RunnerPhaseGate` | The boundary marker `ExitCodeMain` classifies on: an `ApplicationListener<ApplicationStartedEvent>` (published after refresh, before any runner) at `HIGHEST_PRECEDENCE`. A named class deliberately, never a lambda: Spring cannot resolve a lambda's generic event type and would swallow the resulting `ClassCastException`, leaving the gate permanently shut |
 | `StaleExecutionSweeper` | A-39a: plain JDBC against the service's own batch-metadata `DataSource` (single-writer, R-04), abandons stale STARTED job and step executions using CRDB-safe INTERVAL literals; AGT never touches service schemas |
 | `PartitionSizer` | R-41: partition count = clamp(availableProcessors, 1, maxPartitions); `availableProcessors()` is cgroup-aware and reflects the pod CPU limit, not the node |
 
@@ -106,9 +107,19 @@ This is a library: it reads no environment itself except through the shipped
 ./gradlew test
 ```
 
-Four test classes: autoconfig back-off and activation (`ApplicationContextRunner`, including the
-`DCRE_EXCHANGE_ROOT` relaxed-binding regression), shared-yml binding of all 45 leaf directories,
-idempotent/fail-closed bootstrap, and partition clamping. JUnit 6, AssertJ; no containers.
+Eleven test classes, 51 tests (JUnit 6, AssertJ). Container-free: autoconfig back-off and
+activation (`ApplicationContextRunner`, including the `DCRE_EXCHANGE_ROOT` relaxed-binding
+regression), shared-yml binding of all 45 leaf directories, idempotent/fail-closed bootstrap,
+partition clamping, the outcome seam, and the `ExitCodeMain` classification seam. Testcontainers
+CockroachDB (Docker required): `BatchJdbcConfigIT`, `PortalSafeStepExecutionDaoIT`,
+`HeartbeatWriterIT`.
+
+`ExitCodeMainForkIT` is the odd one out and deliberately so: a unit test on the classification
+seam would pass while the real process still exited 1, so it forks a JVM
+(`ExitCodeMainForkHarness`, a bare `@Configuration`, no DataSource, no Docker) and asserts the
+actual process status is 78 / 1 / 0. It needs the test runtime classpath, which the Gradle `test`
+task injects as `dcre.fork.classpath`; run from an IDE without that property it skips rather than
+fails.
 
 ## Local cluster deployment
 

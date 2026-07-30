@@ -42,5 +42,12 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
-test { useJUnitPlatform() }
+test {
+    useJUnitPlatform()
+    // ExitCodeMainForkIT forks a real JVM to observe a real process exit code
+    // (a seam unit test would pass while production still exits 1). Gradle runs
+    // its workers off a manifest-only jar, so java.class.path in the worker is
+    // not the test classpath: hand the child the real one. Absent, the IT skips.
+    systemProperty 'dcre.fork.classpath', sourceSets.test.runtimeClasspath.asPath
+}
 publishing { publications { maven(MavenPublication) { from components.java } } }
