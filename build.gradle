@@ -36,6 +36,11 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-batch'
     testImplementation 'org.springframework.boot:spring-boot-starter-jdbc'
     testImplementation 'org.testcontainers:cockroachdb:1.21.4'
+    // A-80: the stale-lock releaser is wired as a BeanPostProcessor on the bean NAMED
+    // 'liquibase'. That name is an assumption about Boot's autoconfiguration, so the wiring
+    // test boots a real context with real Liquibase rather than asserting the releaser alone.
+    testImplementation 'org.springframework.boot:spring-boot-liquibase'
+    testImplementation 'org.liquibase:liquibase-core'
     testRuntimeOnly 'org.postgresql:postgresql'
 
     testImplementation platform('org.junit:junit-bom:6.0.2')
