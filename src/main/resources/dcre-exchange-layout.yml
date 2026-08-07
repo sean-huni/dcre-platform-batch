@@ -4,7 +4,7 @@ dcre:
     # it; keying the autoconfig on `root` would match the DCRE_EXCHANGE_ROOT env
     # var under relaxed binding and activate on every stage pod (live 2026-07-14).
     enabled: true
-    root: ${DCRE_EXCHANGE_ROOT:../../../../../infra/dcre-infra/exchange}
+    root: ${DCRE_EXCHANGE_ROOT:../../../../../../infra/dcre-infra/exchange}
     clients:
       "[FNBCC01]":
         onhost-req:      { in: fnbcc01/onhost-req/in,      error: fnbcc01/onhost-req/error,      archive: fnbcc01/onhost-req/archive }
