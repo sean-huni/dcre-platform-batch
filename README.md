@@ -13,7 +13,7 @@ kernel (`ExchangeProperties` + `ExchangeBootstrap`, auto-configured behind the
 AGT-facing business-verdict seam (`OutcomeFileWriter`), JVM exit-code transport (`ExitCodeMain`),
 CockroachDB 40001 retry for tasklet steps (`CrdbRetryExceptionHandler`), Batch-metadata
 self-healing (`StaleExecutionSweeper`), and runtime partition sizing (`PartitionSizer`). All
-eleven stage services plus `dcre-rpt` consume it; the writer services CIR, CRW and PRG
+the collections, payments and mandates stage services plus `dcre-rpt` consume it; the writer services CIR, CRW and CRG
 additionally import the shipped layout yml.
 
 ## Architecture and principles
@@ -47,7 +47,7 @@ additionally import the shipped layout yml.
 | `ExchangeProperties` | Binds `dcre.exchange.*` (client map keyed by bracketed tokens, e.g. `"[FNBCC01]"`, to survive relaxed binding); fails fast on an empty client map; `toLayout()` builds the `ExchangeLayout` kernel |
 | `ExchangeAutoConfiguration` | Exposes `ExchangeLayout` + `ExchangeBootstrap` beans; backs off entirely unless `dcre.exchange.enabled=true`, which only the shipped yml sets. Deliberately NOT keyed on `dcre.exchange.root`: AGT exports `DCRE_EXCHANGE_ROOT` to every stage pod and relaxed binding canonicalizes it to `dcre.exchange.root`, which would activate the autoconfig fleet-wide (caught live in-cluster 2026-07-14, regression-tested) |
 | `ExchangeBootstrap` | `ApplicationRunner` that creates every leaf directory of the layout at startup; idempotent, fail-closed |
-| `dcre-exchange-layout.yml` | Shared classpath resource: 3 clients (FNBCC01, FNBCC02, FNBRF01) x 5 channels x 3 subs = 45 leaf directories; imported by CIR/CRW/PRG via `spring.config.import: classpath:dcre-exchange-layout.yml` |
+| `dcre-exchange-layout.yml` | Shared classpath resource: 3 clients (FNBCC01, FNBCC02, FNBRF01) x 9 channels x 3 subs = 81 leaf directories (5 collections channels + 4 mandates; verified against the yml 2026-08-08); imported by CIR/CRW/CRG via `spring.config.import: classpath:dcre-exchange-layout.yml` |
 | `CrdbRetryExceptionHandler` | Step-level retry for CockroachDB serialization aborts (SQLSTATE 40001, surfacing as `TransientDataAccessException`): max 5 attempts, exponential backoff from 100 ms with jitter, per-`RepeatContext` attempt budget. Register on TASKLET steps only (`.exceptionHandler(new CrdbRetryExceptionHandler("CIR"))`), never on chunk-oriented steps: swallowing at the repeat level re-runs the whole iteration |
 | `OutcomeFileWriter` | SYNTHETIC-CONTRACT (R-35): writes `<exchangeRoot>/outcomes/<jobName>` atomically via `StagedWrite`; the AGT-service business-verdict seam |
 | `ExitCodeMain` | R-34: `System.exit(SpringApplication.exit(...))` so the container exit code carries the Batch outcome to the K8s Job. Reserves `CONFIG_FAILURE_EXIT_CODE` = 78 (EX_CONFIG, sysexits.h) for any failure BEFORE the runner phase: that is infrastructure, not a job verdict, and AGT classifies 78 as `TECH_CONFIG_FAILED` on its own bounded budget instead of burning the `TECH_FAILED` orphan budget. A failure once the runner phase has begun propagates unchanged (JVM status 1) |
@@ -147,11 +147,11 @@ images, and `kind load` them again.
   [dcre-cde](https://github.com/sean-huni/dcre-cde),
   [dcre-cir](https://github.com/sean-huni/dcre-cir),
   [dcre-crw](https://github.com/sean-huni/dcre-crw),
-  [dcre-ixr](https://github.com/sean-huni/dcre-ixr),
-  [dcre-sxr](https://github.com/sean-huni/dcre-sxr),
-  [dcre-pxr](https://github.com/sean-huni/dcre-pxr),
-  [dcre-prg](https://github.com/sean-huni/dcre-prg),
-  [dcre-ais](https://github.com/sean-huni/dcre-ais),
+  [dcre-cix](https://github.com/sean-huni/dcre-cix),
+  [dcre-csx](https://github.com/sean-huni/dcre-csx),
+  [dcre-cpx](https://github.com/sean-huni/dcre-cpx),
+  [dcre-crg](https://github.com/sean-huni/dcre-crg),
+  [dcre-pai](https://github.com/sean-huni/dcre-pai),
   [dcre-hcs](https://github.com/sean-huni/dcre-hcs)
 - Platform libraries: [dcre-platform-model](https://github.com/sean-huni/dcre-platform-model),
   [dcre-platform-files](https://github.com/sean-huni/dcre-platform-files),

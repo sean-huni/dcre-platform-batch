@@ -65,7 +65,7 @@ class ExchangeAutoConfigurationTest {
 
     @Test
     void activatesAndBootstrapsWhenLayoutYamlImported(@TempDir final Path root) {
-        // CIR/PRG/CRW import the shared yml (which sets dcre.exchange.root): full activation.
+        // CIR/CRG/CRW import the shared yml (which sets dcre.exchange.root): full activation.
         runner.withInitializer(new ConfigDataApplicationContextInitializer())
                 .withPropertyValues(
                         "spring.config.import=classpath:dcre-exchange-layout.yml",
