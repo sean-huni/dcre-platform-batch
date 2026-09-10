@@ -36,11 +36,23 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-batch'
     testImplementation 'org.springframework.boot:spring-boot-starter-jdbc'
     testImplementation 'org.testcontainers:cockroachdb:1.21.4'
+    // A-80: the stale-lock releaser is wired as a BeanPostProcessor on the bean NAMED
+    // 'liquibase'. That name is an assumption about Boot's autoconfiguration, so the wiring
+    // test boots a real context with real Liquibase rather than asserting the releaser alone.
+    testImplementation 'org.springframework.boot:spring-boot-liquibase'
+    testImplementation 'org.liquibase:liquibase-core'
     testRuntimeOnly 'org.postgresql:postgresql'
 
     testImplementation platform('org.junit:junit-bom:6.0.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
-test { useJUnitPlatform() }
+test {
+    useJUnitPlatform()
+    // ExitCodeMainForkIT forks a real JVM to observe a real process exit code
+    // (a seam unit test would pass while production still exits 1). Gradle runs
+    // its workers off a manifest-only jar, so java.class.path in the worker is
+    // not the test classpath: hand the child the real one. Absent, the IT skips.
+    systemProperty 'dcre.fork.classpath', sourceSets.test.runtimeClasspath.asPath
+}
 publishing { publications { maven(MavenPublication) { from components.java } } }

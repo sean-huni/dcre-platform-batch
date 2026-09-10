@@ -16,7 +16,7 @@ import za.co.fnb.dcre.platform.files.ExchangeLayout;
  *
  * <p>Backs off entirely unless the marker {@code dcre.exchange.enabled=true} is set,
  * which ONLY the shipped {@code dcre-exchange-layout.yml} provides (imported by the
- * writer services CIR/PRG/CRW). The other services that depend on platform-batch for
+ * writer services CIR/CRG/CRW). The other services that depend on platform-batch for
  * the seam listener carry no {@code dcre.exchange} config, so they must not bind
  * {@link ExchangeProperties} nor fail startup.
  *

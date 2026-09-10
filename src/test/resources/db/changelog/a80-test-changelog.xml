@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      A-80 wiring proof only. The changeset content is irrelevant; what matters is that Liquibase
+      has to ACQUIRE THE LOCK to apply it, so the context cannot start while a dead pod's lock is
+      still held. Pure XML, per the typed-tags-only standard.
+    -->
+    <changeSet id="a80-wiring-probe" author="dcre">
+        <createTable tableName="a80_wiring_probe">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+        </createTable>
+        <rollback>
+            <dropTable tableName="a80_wiring_probe"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

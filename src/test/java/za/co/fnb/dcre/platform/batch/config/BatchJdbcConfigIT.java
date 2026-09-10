@@ -48,7 +48,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code ResourcelessJobRepository}; assertion (a) fails, execution ids stay a
  * constant {@code 1}, and {@code IT_BATCH_JOB_INSTANCE} stays empty.
  */
-@SpringBootTest(properties = "spring.batch.job.enabled=false")
+// A-80 added liquibase-core to this module's TEST classpath (the wiring proof needs real
+// Liquibase). That switches Boot's LiquibaseAutoConfiguration on for every context in the
+// module, and this one has no changelog. Disabled explicitly, which is exactly the state it
+// ran in before: nothing here concerns migrations.
+@SpringBootTest(properties = {"spring.batch.job.enabled=false", "spring.liquibase.enabled=false"})
 class BatchJdbcConfigIT {
 
     /** Partitions in the CTV shape: {@code dcre.ctv.max-partitions} defaults to 5. */
