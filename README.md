@@ -57,7 +57,9 @@ additionally import the shipped layout yml.
 
 ## Prerequisites
 
-- JDK 25 (Gradle toolchain `languageVersion = 25`; wrapper is Gradle 9.5.1)
+- JDK 25 (`sourceCompatibility`/`targetCompatibility` in `build.gradle`; there is no Gradle
+  toolchain block in this module or anywhere in the fleet, and adding one is not allowed;
+  wrapper is Gradle 9.5.1)
 - `za.co.fnb.dcre:platform-files:0.1.0` (and transitively `platform-model:0.1.0`) published to
   Maven Local: this module resolves the platform chain from `mavenLocal()` only
 - No Docker and no `.env` needed: the test suite is plain JUnit against temp directories
