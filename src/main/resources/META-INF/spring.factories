@@ -1,0 +1,5 @@
+# Keyed on org.springframework.boot.EnvironmentPostProcessor, which is the CURRENT interface in
+# Boot 4.1. org.springframework.boot.env.EnvironmentPostProcessor still loads, through
+# SpringFactoriesEnvironmentPostProcessorsFactory.loadDeprecatedPostProcessors, and is deprecated.
+org.springframework.boot.EnvironmentPostProcessor=\
+za.co.fnb.dcre.platform.batch.config.TelemetryEnvironmentPostProcessor
