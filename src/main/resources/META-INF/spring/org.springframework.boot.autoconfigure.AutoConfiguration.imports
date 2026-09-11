@@ -1,2 +1,3 @@
 za.co.fnb.dcre.platform.batch.config.ExchangeAutoConfiguration
 za.co.fnb.dcre.platform.batch.config.LiquibaseLockAutoConfiguration
+za.co.fnb.dcre.platform.batch.config.TelemetryAutoConfiguration

@@ -10,6 +10,10 @@ java {
     withSourcesJar()
 }
 repositories { mavenCentral(); mavenLocal() }
+// Inline literal, deliberately NOT in gradle.properties: that file holds exactly ONE entry,
+// springBatchVersion, because that one is guarded by PortalSafeOverrideGuardTest and its header
+// says so. Every other version in this module is an inline literal in this file.
+ext.otelLogbackAppenderVersion = '2.28.1-alpha'
 dependencies {
     api 'za.co.fnb.dcre:platform-files:0.1.0'
     compileOnly 'org.springframework.boot:spring-boot:4.1.0'
@@ -21,6 +25,24 @@ dependencies {
     compileOnly 'org.springframework:spring-jdbc:7.0.8'
     compileOnly 'org.springframework.boot:spring-boot-jdbc:4.1.0'
     compileOnly 'org.slf4j:slf4j-api:2.0.17'
+
+    // [!CONVENTION-OVERRIDE] Every other framework dependency here is compileOnly, so this library
+    // forces no runtime version on its 28 consumers. Telemetry cannot honour that: an exporter that
+    // is only on the compile classpath exports nothing. The alternative is the same four lines
+    // hand-copied into 28 build files, which is the shape that produced nine divergent copies of one
+    // class on this fleet on 2026-09-04. One version, one place, one bump.
+    //
+    // micrometer-registry-otlp is api and NOT runtimeOnly: the Task 1 spike (2026-09-11) measured
+    // that a runtimeOnly registry cannot be compiled against ("package io.micrometer.registry.otlp
+    // does not exist"), and Task 4 needs it on the compile classpath.
+    //
+    // The three unpinned coordinates in the brief carry inline literals here because this module
+    // applies no BOM to its main configurations. 4.1.0 and 1.17.0 are the versions the
+    // spring-boot-dependencies:4.1.0 BOM manages (micrometer.version=1.17.0), read from the BOM.
+    api 'org.springframework.boot:spring-boot-starter-actuator:4.1.0'
+    api 'org.springframework.boot:spring-boot-starter-opentelemetry:4.1.0'
+    api "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:${otelLogbackAppenderVersion}"
+    api 'io.micrometer:micrometer-registry-otlp:1.17.0'
 
     testImplementation platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
     testImplementation 'org.springframework.boot:spring-boot'
