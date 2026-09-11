@@ -3,7 +3,7 @@ plugins {
     id 'maven-publish'
 }
 group = 'za.co.fnb.dcre'
-version = '0.1.0'
+version = '0.2.0'
 java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
