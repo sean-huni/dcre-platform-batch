@@ -27,9 +27,9 @@ dependencies {
     compileOnly 'org.slf4j:slf4j-api:2.0.17'
 
     // [!CONVENTION-OVERRIDE] Every other framework dependency here is compileOnly, so this library
-    // forces no runtime version on its 28 consumers. Telemetry cannot honour that: an exporter that
+    // forces no runtime version on its 30 consumers. Telemetry cannot honour that: an exporter that
     // is only on the compile classpath exports nothing. The alternative is the same four lines
-    // hand-copied into 28 build files, which is the shape that produced nine divergent copies of one
+    // hand-copied into 30 build files, which is the shape that produced nine divergent copies of one
     // class on this fleet on 2026-09-04. One version, one place, one bump.
     //
     // micrometer-registry-otlp is api and NOT runtimeOnly: the Task 1 spike (2026-09-11) measured
