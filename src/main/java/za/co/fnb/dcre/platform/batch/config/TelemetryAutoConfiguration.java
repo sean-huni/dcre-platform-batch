@@ -1,5 +1,9 @@
 package za.co.fnb.dcre.platform.batch.config;
 
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -36,6 +40,12 @@ import java.util.Map;
  * publishing under a name nobody can map back to a service is the defect this whole task exists to
  * remove. The escape hatch is {@code dcre.telemetry.stage}, which the post-processor honours.
  *
+ * <p>It also installs the SDK into this library's logback appender. That belongs here rather than
+ * beside the appender declaration for the same blast-radius reason as the temporality guard: behind
+ * this marker it can only fail a service that asked for telemetry, and the appender itself is
+ * attached unconditionally so that a service exporting without the marker still logs to its console
+ * exactly as before.
+ *
  * <p>There is no {@code MeterFilter} here any more. Common tags become OTLP DATAPOINT attributes,
  * never resource attributes, so they never set {@code job} or {@code instance}; they duplicated the
  * identity onto every series, and once the divergence above was possible they could have put
@@ -54,6 +64,18 @@ public class TelemetryAutoConfiguration {
             + " is not set. TelemetryEnvironmentPostProcessor publishes it from the application's "
             + "package leaf; if it did not run, this context was not started by SpringApplication. "
             + "Set " + TelemetryProperties.STAGE + " explicitly, or start the service normally";
+
+    static final String NO_OPEN_TELEMETRY =
+            "dcre.telemetry.enabled=true but no io.opentelemetry.api.OpenTelemetry bean exists, so "
+            + "OpenTelemetryAppender.install(...) cannot be called. This library's "
+            + "logback-spring.xml attaches that appender to the root logger unconditionally, and an "
+            + "appender that is never handed an SDK buffers a bounded number of records and then "
+            + "drops everything, silently, for the life of the process. That is a configured log "
+            + "pipeline that ships nothing, and it is indistinguishable from a working one. Boot's "
+            + "OpenTelemetrySdkAutoConfiguration publishes the bean whether OpenTelemetry is enabled "
+            + "or disabled, and this library puts it on every consumer's classpath through "
+            + "spring-boot-starter-opentelemetry, so reaching this message means that "
+            + "autoconfiguration was excluded deliberately";
 
     static final String INSTANCE_NOT_PUBLISHED =
             "dcre.telemetry.enabled=true but " + TelemetryEnvironmentPostProcessor.INSTANCE_ID_KEY
@@ -97,6 +119,40 @@ public class TelemetryAutoConfiguration {
         // The canonical constructor, not of(): the name is already prefixed. It still validates
         // both components, so a service that renamed itself fails here by name.
         return new StageIdentity(serviceName, instanceId);
+    }
+
+    /**
+     * Hands this library's logback appender the SDK, which is the half of the log wiring that has no
+     * visible symptom when it is missing.
+     *
+     * <p>{@code logback-spring.xml} attaches {@code OpenTelemetryAppender} to the root logger, and
+     * {@code OpenTelemetryAppender.install(OpenTelemetry)} walks the logger context and gives each
+     * attached instance its SDK. An appender that never receives one is not an error: it buffers a
+     * bounded number of events, drops the rest, and keeps returning from {@code append} normally. So
+     * attaching without installing produces a service whose configuration, startup logs and
+     * console output are identical to a correctly wired one, and whose Logs board is empty. That
+     * asymmetry is why this is a bean that FAILS rather than a step someone remembers.
+     *
+     * <p>A {@link SmartInitializingSingleton} rather than a plain {@code @Bean} body, so the install
+     * runs after every singleton exists. Two things follow from that and both are wanted: the
+     * {@code OpenTelemetry} bean is fully built, and everything logged during refresh is already in
+     * the appender's replay buffer and is flushed through on install rather than lost.
+     *
+     * <p>The provider is resolved and then REFUSED when empty, instead of being declared as a
+     * required parameter, so the failure names the consequence. Spring's own
+     * {@code UnsatisfiedDependencyException} would name a type and a bean and say nothing about
+     * logs being dropped, and this is the exact defect the task exists to prevent.
+     */
+    @Bean
+    SmartInitializingSingleton dcreOpenTelemetryLogAppenderInstaller(
+            final ObjectProvider<OpenTelemetry> openTelemetry) {
+        return () -> {
+            final OpenTelemetry sdk = openTelemetry.getIfAvailable();
+            if (sdk == null) {
+                throw new IllegalStateException(NO_OPEN_TELEMETRY);
+            }
+            OpenTelemetryAppender.install(sdk);
+        };
     }
 
     /**

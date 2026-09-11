@@ -1,5 +1,6 @@
 package za.co.fnb.dcre.platform.batch.config;
 
+import io.opentelemetry.api.OpenTelemetry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
@@ -258,6 +259,10 @@ class TelemetryEnvironmentPostProcessorTest {
         final Map<String, String> exported = resourceAttributes(published);
 
         new ApplicationContextRunner()
+                // Fixture: every consumer carries an OpenTelemetry bean, so the appender installer
+                // in TelemetryAutoConfiguration can run. Without it this context is refused by name
+                // and the identity assertion below would never be reached.
+                .withBean(OpenTelemetry.class, OpenTelemetry::noop)
                 .withConfiguration(AutoConfigurations.of(TelemetryAutoConfiguration.class))
                 .withPropertyValues(
                         TelemetryProperties.ENABLED + "=true",

@@ -1,5 +1,6 @@
 package za.co.fnb.dcre.platform.batch.config;
 
+import io.opentelemetry.api.OpenTelemetry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -27,7 +28,16 @@ class TelemetryAutoConfigurationTest {
     private static final String NAME_KEY = TelemetryEnvironmentPostProcessor.SERVICE_NAME_KEY;
     private static final String INSTANCE_KEY = TelemetryEnvironmentPostProcessor.INSTANCE_ID_KEY;
 
+    // The OpenTelemetry bean is part of the FIXTURE, not of what is asserted here. Every consumer
+    // has one, because this library puts spring-boot-starter-opentelemetry on their classpath and
+    // Boot's OpenTelemetrySdkAutoConfiguration publishes an SDK whether OpenTelemetry is enabled or
+    // disabled. A runner without it would model a context no consumer has, and the appender
+    // installer would refuse it by name, so every case below would then fail for the wrong reason.
+    // It is a no-op instance deliberately: nothing here exercises the log path, which is
+    // LogExportTest's job, and that test boots a real SpringApplication because only that reads
+    // logback-spring.xml at all.
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withBean(OpenTelemetry.class, OpenTelemetry::noop)
             .withConfiguration(AutoConfigurations.of(TelemetryAutoConfiguration.class));
 
     @Test

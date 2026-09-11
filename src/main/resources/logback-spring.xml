@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The log signal on the wire the metrics and traces already use, so a log line, a metric and a span
+  from one file arrival carry the SAME resource attributes and join on dcre.arrival.id. The
+  collector inside grafana/otel-lgtm has a logs pipeline that exports to Loki's own OTLP ingest, so
+  a record sent here is a record in Loki with no second hop to configure.
+
+  This file ships in the LIBRARY jar, so all 30 stage services get it without restating it, which is
+  the same decision and the same reason as TelemetryEnvironmentPostProcessor contributing the
+  identity: a service that had to opt in would fail silently by forgetting to.
+
+  It is logback-spring.xml and not logback.xml deliberately. Boot reads the standard locations
+  FIRST, so a service that ever needs to take the log pipeline over ships its own logback.xml and
+  wins outright, with no edit to this library. Measured 2026-09-11: no logback configuration of any
+  name exists anywhere else in the DCRE tree, so today this is the fleet's only one.
+
+  ATTACHING IS HALF THE WIRING. OpenTelemetryAppender.install(openTelemetry) is what hands this
+  appender the SDK; without it the appender stays attached and drops every record silently, which
+  looks exactly like a working log pipeline. TelemetryAutoConfiguration owns that call, and
+  LogExportTest asserts a record actually arrives rather than asserting this file exists.
+-->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+  <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+    <captureExperimentalAttributes>true</captureExperimentalAttributes>
+    <captureMdcAttributes>*</captureMdcAttributes>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="OTEL"/>
+  </root>
+</configuration>

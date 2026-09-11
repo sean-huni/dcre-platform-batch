@@ -1,6 +1,7 @@
 package za.co.fnb.dcre.platform.batch.config;
 
 import io.micrometer.registry.otlp.AggregationTemporality;
+import io.opentelemetry.api.OpenTelemetry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -52,7 +53,13 @@ class TemporalityIT {
     private static final String INSTANCE_KEY = TelemetryEnvironmentPostProcessor.INSTANCE_ID_KEY;
     private static final String TEMPORALITY = TelemetryAutoConfiguration.TEMPORALITY_KEY;
 
+    // Fixture, not subject. Every consumer carries an OpenTelemetry bean, because this library puts
+    // spring-boot-starter-opentelemetry on their classpath and Boot's OpenTelemetrySdkAutoConfiguration
+    // publishes an SDK whether OpenTelemetry is enabled or disabled. Without it the appender
+    // installer refuses this context by name, and every temporality case below would then pass or
+    // fail on the wrong failure: exactly the hazard this class's own javadoc already names.
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withBean(OpenTelemetry.class, OpenTelemetry::noop)
             .withConfiguration(AutoConfigurations.of(TelemetryAutoConfiguration.class))
             .withPropertyValues(TelemetryProperties.ENABLED + "=true",
                                 NAME_KEY + "=dcre-crg",
