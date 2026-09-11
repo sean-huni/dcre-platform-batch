@@ -29,9 +29,9 @@ additionally import the shipped layout yml.
   dev/prod parity (the same shipped yml drives local and in-cluster layouts). Spring Boot is
   `compileOnly` for everything EXCEPT telemetry, so for those concerns the library stays a pure
   convention carrier and the consumer's runtime provides the framework. Telemetry is the marked
-  exception and it is a real one: four `api` coordinates force Spring Boot 4.1.0 and Micrometer
-  1.17.0 onto all 30 consumers, because an exporter that is only on the compile classpath exports
-  nothing. See the `[!CONVENTION-OVERRIDE]` in `build.gradle` for the trade, and **Telemetry**
+  exception and it is a real one: four telemetry coordinates (three `api`, one `runtimeOnly`)
+  force Spring Boot 4.1.0 and Micrometer 1.17.0 onto all 30 consumers' RUNTIME classpath, because
+  an exporter that is only on the compile classpath exports nothing. See the `[!CONVENTION-OVERRIDE]` in `build.gradle` for the trade, and **Telemetry**
   below for what this library writes into every consumer's Environment.
 - **Layer-first packages**: `config/` + `config/properties/` for the auto-configuration seam,
   top-level utilities for the batch conventions, matching the fleet package canon.
@@ -101,28 +101,38 @@ dependencies {
 consumer. Spring Boot 4.1.0, Spring Batch 6.0.4 (`spring-batch-infrastructure`), `spring-tx`
 7.0.8 and `slf4j-api` 2.0.17 are `compileOnly` here: the consuming service provides them.
 
-Telemetry is the exception, marked `[!CONVENTION-OVERRIDE]` in `build.gradle`. These four are
-`api`, so they reach every consumer's RUNTIME classpath and force their versions there:
+Telemetry is the exception, marked `[!CONVENTION-OVERRIDE]` in `build.gradle`. Four coordinates
+reach every consumer's RUNTIME classpath and force their versions there, three of them as `api` and
+one as `runtimeOnly`:
 
 ```groovy
-api 'org.springframework.boot:spring-boot-starter-actuator:4.1.0'
-api 'org.springframework.boot:spring-boot-starter-opentelemetry:4.1.0'
-api "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.28.1-alpha"
-api 'io.micrometer:micrometer-registry-otlp:1.17.0'
+api         'org.springframework.boot:spring-boot-starter-actuator:4.1.0'
+api         'org.springframework.boot:spring-boot-starter-opentelemetry:4.1.0'
+api         "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.28.1-alpha"
+runtimeOnly 'io.micrometer:micrometer-registry-otlp:1.17.0'
+testImplementation 'io.micrometer:micrometer-registry-otlp:1.17.0'
 ```
 
 An exporter that is only on the compile classpath exports nothing, and the alternative is the same
 four lines hand-copied into 30 build files.
 
-`micrometer-registry-otlp` is `api` rather than `runtimeOnly`, and **the reason recorded for that has
-lapsed.** It was made `api` so that flush code could compile against it; the Task 1 spike then proved
-there is no flush to write, and `grep -rn "io.micrometer" src/` finds nothing (exit 1, against a
-positive control returning 5 hits, measured 2026-09-11). For a CONSUMER the two scopes are
-equivalent, because Gradle puts `runtimeOnly` into `runtimeElements` as well; they differ only in
-whether anything can compile against the registry. It is left as `api` rather than churning 30
-consumers' resolved compile classpaths for no behavioural change. If code here ever does reach the
-registry it types on `PushMeterRegistry` from `micrometer-core`, never on `OtlpMeterRegistry`: a cast
-to the latter throws in any service carrying a composite registry.
+**`micrometer-registry-otlp` is `runtimeOnly`, with a `testImplementation` line beside it, and the
+two are one decision.** The MAIN source set compiles against nothing in `io.micrometer`; the TEST
+source set compiles against `io.micrometer.registry.otlp.AggregationTemporality`, which is how
+`TemporalityIT` reads the pinned default back through the enum Micrometer consumes. Measured at the
+committed tree on 2026-09-11: `grep -rn "io.micrometer" src/main` exits 1 with 0 hits and
+`src/test` exits 0 with exactly 1, both against positive controls that exit 0.
+
+An earlier revision of this paragraph claimed zero hits across `src/` entirely. That measurement was
+taken before `TemporalityIT` existed and **the same commit that recorded it added the import that
+falsified it**, which is why the two source sets are now stated separately rather than as one number.
+
+`runtimeOnly` still publishes at `scope=runtime` (verified in the generated POM), so every consumer
+keeps the exporter, which is all an exporter needs, and zero consumers compile against the package
+anywhere in the DCRE tree. `micrometer-core`, the home of `PushMeterRegistry`, stays on the compile
+classpath through `spring-boot-starter-actuator` independently of this line, so the standing rule
+survives: code that reaches the registry types on `PushMeterRegistry`, never on `OtlpMeterRegistry`,
+whose cast throws in any service carrying a composite registry.
 
 ## Configuration
 
@@ -147,7 +157,7 @@ A FIFTH property is written by `TelemetryAutoConfiguration`, and only by service
 
 | Written key | Value | Why |
 |---|---|---|
-| `management.otlp.metrics.export.aggregation-temporality` | `cumulative` | With `delta` an orderly exit publishes NOTHING: the receiver accepts the payload with HTTP 200 and an empty `partialSuccess` and stores none of it, so no error appears in the application, in the collector or in a panel. Measured 2026-09-11, isolated to the receiver by hand-posting a delta payload |
+| `management.otlp.metrics.export.aggregation-temporality` | `cumulative` | With `delta` an orderly exit publishes NOTHING: the receiver accepts the payload with HTTP 200 and an empty `partialSuccess` and stores none of it, so no error appears in the application, in the collector or in a panel. Isolated to the receiver by hand-posting a delta payload (Task 1 spike, 2026-09-11, inherited and not re-measured by Task 4) |
 
 **Setting that key to anything but `cumulative` fails the service at startup, by name.** That is
 deliberate rather than a default quietly winning: the realistic override channel is an environment
@@ -156,6 +166,12 @@ one failure shape no dashboard can show. A blank value is treated as UNSET and s
 because binding `""` to `AggregationTemporality` was measured to yield no value and Boot then falls
 back to its own cumulative default; refusing it would crash a working service over an ordinary
 valueless ConfigMap key.
+
+**The operator who sets `delta` sees a Job exit code, not that message.** The guard throws during
+`refresh()`, before `ApplicationStartedEvent`, so `RunnerPhaseGate` has not been reached and
+`ExitCodeMain` reserves `CONFIG_FAILURE_EXIT_CODE` = 78, which AGT classifies as
+`TECH_CONFIG_FAILED` on its own bounded budget rather than as a job verdict. The message is in the
+pod log; 78 is the signal that says to go and read it.
 
 The contributed default is a PIN, not the fix. Boot 4.1.0 already defaults to cumulative
 (`OtlpMetricsProperties`' constructor assigns `AggregationTemporality.CUMULATIVE`, read from the
@@ -174,8 +190,8 @@ today and holds the value if that default ever moves. The refusal is what closes
 ## What a killed pod loses, and why there is no flush
 
 **A process killed with SIGKILL, evicted ungracefully, or terminated by the out-of-memory killer
-publishes NO telemetry for its final export window.** Measured 2026-09-11 via `Runtime.halt(0)`:
-zero series. No shutdown-time mechanism prevents this, because every one of them runs during
+publishes NO telemetry for its final export window.** Measured via `Runtime.halt(0)`: zero series
+(Task 1 spike, 2026-09-11, inherited and not re-measured by Task 4). No shutdown-time mechanism prevents this, because every one of them runs during
 shutdown and a kill skips shutdown. The chaos gate kills stage pods with grace 0 on purpose, so a
 chaos run will show missing telemetry for exactly the pods it killed. That absence is expected
 behaviour and not a monitoring defect.
@@ -202,7 +218,7 @@ configuration, not lifecycle, which is what the `aggregation-temporality` refusa
 2026-09-11), so `clean build` above is the whole gate and there is no separate verification script
 to run instead.
 
-Seventeen test classes, 107 tests (JUnit 6, AssertJ), counted from
+Seventeen test classes, 111 tests (JUnit 6, AssertJ), counted from
 `build/test-results/test/TEST-*.xml` after a full `./gradlew clean build` on 2026-09-11.
 Container-free: autoconfig back-off and activation (`ApplicationContextRunner`, including the
 `DCRE_EXCHANGE_ROOT` relaxed-binding regression), shared-yml binding of all 81 leaf directories,

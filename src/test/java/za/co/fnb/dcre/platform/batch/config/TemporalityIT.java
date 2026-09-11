@@ -2,6 +2,8 @@ package za.co.fnb.dcre.platform.batch.config;
 
 import io.micrometer.registry.otlp.AggregationTemporality;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -18,11 +20,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Cumulative is pinned, and delta is REFUSED at startup rather than tolerated.
  *
- * <p>Measured 2026-09-11: with delta temporality an orderly exit publishes NOTHING. The receiver
- * accepts the payload with HTTP 200 and an empty {@code partialSuccess} and stores none of it, so no
- * error appears anywhere: not in the application, not in the collector, not in a panel. A service
- * configured that way looks healthy and is invisible. That was isolated to the receiver rather than
- * to Micrometer by hand-posting a delta payload.
+ * <p>INHERITED MEASUREMENT (Task 1 spike, 2026-09-11), not re-measured by this test: with delta
+ * temporality an orderly exit publishes NOTHING. The receiver accepts the payload with HTTP 200 and
+ * an empty {@code partialSuccess} and stores none of it, so no error appears anywhere: not in the
+ * application, not in the collector, not in a panel. A service configured that way looks healthy
+ * and is invisible. The spike isolated it to the receiver by hand-posting a delta payload.
+ * Everything this class asserts about Boot and Micrometer, by contrast, is measured here.
  *
  * <p><strong>The guard is the control; the contributed default is a pin.</strong> Boot 4.1.0 already
  * defaults to cumulative: {@code OtlpMetricsProperties}' constructor assigns
@@ -32,8 +35,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * an explicit delta. Both are asserted separately, so removing either is detectable.
  *
  * <p>This class sits in the {@code config} package rather than the {@code telemetry} package the
- * brief named, so it can assert the EXACT message rather than a substring. The alternative was
- * making a library-internal key and message public purely for a test.
+ * brief named. NOT for the reason first given: a literal substring assertion is strictly stronger
+ * on the text and needs no package move. The move earns its place by pinning the failure to THIS
+ * guard, through the package-private key and message, rather than accepting any startup failure.
+ * That matters because the brief's own fixture would have failed for an unrelated identity reason
+ * and a bare {@code hasFailed()} would have passed on it.
  *
  * <p>Every fixture seeds the published identity keys, because {@link TelemetryAutoConfiguration}
  * reads them back and fails startup without them. A context that failed for the WRONG reason would
@@ -77,13 +83,31 @@ class TemporalityIT {
     @Test
     void anEnvironmentVariableSettingDeltaAlsoFailsStartup() {
         // The channel the whole guard exists for: an environment variable nobody remembers setting.
-        // Measured 2026-09-11 that Environment.getProperty resolves the underscore form of a
-        // hyphenated key, so the guard does not need the Binder to see it. Asserting it here means
-        // a future Spring that stops doing so fails this test instead of silently reopening the hole.
+        // SystemEnvironmentPropertySource resolves the underscore form of a hyphenated key by
+        // itself, so this one channel would survive even a non-relaxed reader; the three spellings
+        // in the test below would not, which is why the guard reads through the Binder.
         runner.withInitializer(ctx -> ctx.getEnvironment().getPropertySources().addFirst(
                         new SystemEnvironmentPropertySource("systemEnvironment", Map.of(
                                 "MANAGEMENT_OTLP_METRICS_EXPORT_AGGREGATION_TEMPORALITY", "delta"))))
               .run(ctx -> refused(ctx, "delta"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {
+            "management.otlp.metrics.export.aggregationTemporality",
+            "management.otlp.metrics.export.aggregation_temporality",
+            "MANAGEMENT.OTLP.METRICS.EXPORT.AGGREGATION-TEMPORALITY"})
+    void everyRelaxedSpellingIsRefusedBecauseBootBindsThemAllToDelta(final String spelling) {
+        // Boot's binder canonicalises all three of these to the same ConfigurationPropertyName
+        // and binds DELTA from any of them, so each is a real way to configure silence.
+        //
+        // NOT a defect that was found and fixed, and the first draft of this comment said it was.
+        // Measured 2026-09-11: these already passed before the guard moved to the Binder, because
+        // ConfigurationPropertySources.attach adds the configurationProperties source and every
+        // SpringApplication attaches it. The bare StandardEnvironment that showed a hole is not a
+        // shape production has. What the Binder buys is that the guard no longer DEPENDS on someone
+        // else having attached that source: see theGuardDoesNotDependOnTheAttachedSource below.
+        runner.withPropertyValues(spelling + "=delta").run(ctx -> refused(ctx, "delta"));
     }
 
     @Test
@@ -119,6 +143,20 @@ class TemporalityIT {
     }
 
     @Test
+    void theGuardDoesNotDependOnTheAttachedSource() {
+        // Removing configurationProperties models a context that never went through
+        // SpringApplication.prepareEnvironment. Environment.getProperty is then an EXACT-match
+        // lookup which reads past the camelCase spelling, finds this library's OWN contributed
+        // cumulative default and passes; the Binder canonicalises and refuses. This is the test
+        // that goes red if the guard is moved back to Environment.getProperty.
+        runner.withPropertyValues(
+                        "management.otlp.metrics.export.aggregationTemporality=delta")
+              .withInitializer(ctx -> ctx.getEnvironment().getPropertySources()
+                      .remove("configurationProperties"))
+              .run(ctx -> refused(ctx, "delta"));
+    }
+
+    @Test
     void theGuardIsInertOnAServiceThatAsksForNoTelemetry() {
         // Blast radius. The 30 consumers that carry no telemetry config must not be startable or
         // unstartable on the strength of a key they never set.
@@ -139,7 +177,9 @@ class TemporalityIT {
     /**
      * The guard's failure, asserted by its exact named message rather than by "startup failed".
      *
-     * <p>Asserted on the startup failure ITSELF, not on {@code rootCause()}: a
+     * <p>The literal substring is the load-bearing half and the round-trip through
+     * {@code notCumulative} only pins that no OTHER text crept in. Asserted on the startup failure
+     * ITSELF, not on {@code rootCause()}: a
      * {@code BeanFactoryPostProcessor} throwing propagates unwrapped out of {@code refresh()}, so
      * there is no cause to unwrap and {@code rootCause()} fails with a misleading message. The
      * sibling identity failures in {@link TelemetryAutoConfigurationTest} DO wrap, because those
@@ -150,6 +190,11 @@ class TemporalityIT {
         assertThat(ctx).hasFailed();
         assertThat(ctx.getStartupFailure())
                 .isInstanceOf(IllegalStateException.class)
+                // A LITERAL, because hasMessage(notCumulative(value)) builds its expectation by
+                // calling the producer and is therefore a tautology: red-proofed 2026-09-11, a
+                // message body replaced with "x" left all tests green. This line is what fails then.
+                .hasMessageContaining(TelemetryAutoConfiguration.TEMPORALITY_KEY + " is '" + value
+                                      + "'. Only cumulative reports through this stack")
                 .hasMessage(TelemetryAutoConfiguration.notCumulative(value));
     }
 
