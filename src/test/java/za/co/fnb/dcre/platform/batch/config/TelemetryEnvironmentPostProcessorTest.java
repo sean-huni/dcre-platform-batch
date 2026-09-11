@@ -251,8 +251,9 @@ class TelemetryEnvironmentPostProcessorTest {
     @Test
     void theBeanAgreesWithWhatWasActuallyPublishedToTheExporter() {
         // One fact, two halves: the post-processor writes the resource attributes the exporter uses,
-        // the autoconfiguration publishes the bean Task 4 consumes. The bean reads the published
-        // values back rather than re-deriving them, and this is what proves it.
+        // and the autoconfiguration publishes the bean carrying the same identity. Nothing in this
+        // library consumes that bean yet: Task 4 turned out to need no flush and so no consumer.
+        // The bean reads the published values back rather than re-deriving them, and this proves it.
         final ConfigurableEnvironment published = process(SampleApplication.class);
         final Map<String, String> exported = resourceAttributes(published);
 

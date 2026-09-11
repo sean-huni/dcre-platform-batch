@@ -32,9 +32,17 @@ dependencies {
     // hand-copied into 30 build files, which is the shape that produced nine divergent copies of one
     // class on this fleet on 2026-09-04. One version, one place, one bump.
     //
-    // micrometer-registry-otlp is api and NOT runtimeOnly: the Task 1 spike (2026-09-11) measured
-    // that a runtimeOnly registry cannot be compiled against ("package io.micrometer.registry.otlp
-    // does not exist"), and Task 4 needs it on the compile classpath.
+    // micrometer-registry-otlp is api and NOT runtimeOnly, and THE REASON RECORDED FOR THAT HAS
+    // LAPSED. The Task 1 spike (2026-09-11) measured that a runtimeOnly registry cannot be compiled
+    // against ("package io.micrometer.registry.otlp does not exist"), and it was made api so Task
+    // 4's flush could compile. The same spike then proved there is no flush to write, and Task 4
+    // compiles against nothing here: `grep -rn "io.micrometer" src/` exits 1 with zero hits against
+    // a positive control returning 5. A consumer sees no difference either way, because Gradle puts
+    // runtimeOnly into runtimeElements too; the scopes differ only in what can COMPILE against the
+    // registry. Left as api rather than churning 30 consumers' resolved compile classpaths for no
+    // behavioural change. Anything here that ever does reach the registry types on
+    // PushMeterRegistry from micrometer-core, never on OtlpMeterRegistry: a cast to the latter
+    // throws in any service carrying a composite registry.
     //
     // The three unpinned coordinates in the brief carry inline literals here because this module
     // applies no BOM to its main configurations. 4.1.0 and 1.17.0 are the versions the

@@ -61,7 +61,7 @@ additionally import the shipped layout yml.
 | `StageIdentity` | The two labels every other number depends on: `service.name` and `service.instance.id`. Validates both in its canonical constructor, so `dcre-[a-z]+` is enforced wherever it is built and a per-job shaped token such as `mrv-account-reference` is REFUSED |
 | `TelemetryEnvironmentPostProcessor` | Registered in `META-INF/spring.factories`. Runs before any bean exists and writes the identity into EVERY consumer's Environment: see **Telemetry** below. It cannot be a `MeterFilter`, because `OtlpMeterRegistry` builds its OTLP resource once in its constructor and a filter only sees a `Meter.Id` afterwards |
 | `StageIdentityResolver` | The rule that turns candidate `@SpringBootApplication` classes into a validated `StageIdentity`: the package leaf, one per deployable, with `dcre.telemetry.stage` as the explicit override. Tolerant for the post-processor, which runs for every consumer including non-fleet ones |
-| `TelemetryAutoConfiguration` | Publishes the `StageIdentity` BEAN behind `dcre.telemetry.enabled=true`. Resolves nothing: it reads back what the post-processor published, so the bean cannot name the service differently from what is being exported, and a service that renamed itself fails at startup by name |
+| `TelemetryAutoConfiguration` | Publishes the `StageIdentity` BEAN behind `dcre.telemetry.enabled=true`. Resolves nothing: it reads back what the post-processor published, so the bean cannot name the service differently from what is being exported, and a service that renamed itself fails at startup by name. It also pins `aggregation-temporality` to `cumulative` and REFUSES any other value at startup: with delta an orderly exit publishes nothing and the service looks healthy while being invisible |
 | `TelemetryProperties` | Binds `dcre.telemetry.*` and is the one place those key names are written |
 
 ## Prerequisites
@@ -112,8 +112,17 @@ api 'io.micrometer:micrometer-registry-otlp:1.17.0'
 ```
 
 An exporter that is only on the compile classpath exports nothing, and the alternative is the same
-four lines hand-copied into 30 build files. `micrometer-registry-otlp` is `api` rather than
-`runtimeOnly` because code that flushes the registry has to compile against it.
+four lines hand-copied into 30 build files.
+
+`micrometer-registry-otlp` is `api` rather than `runtimeOnly`, and **the reason recorded for that has
+lapsed.** It was made `api` so that flush code could compile against it; the Task 1 spike then proved
+there is no flush to write, and `grep -rn "io.micrometer" src/` finds nothing (exit 1, against a
+positive control returning 5 hits, measured 2026-09-11). For a CONSUMER the two scopes are
+equivalent, because Gradle puts `runtimeOnly` into `runtimeElements` as well; they differ only in
+whether anything can compile against the registry. It is left as `api` rather than churning 30
+consumers' resolved compile classpaths for no behavioural change. If code here ever does reach the
+registry it types on `PushMeterRegistry` from `micrometer-core`, never on `OtlpMeterRegistry`: a cast
+to the latter throws in any service carrying a composite registry.
 
 ## Configuration
 
@@ -133,6 +142,26 @@ opt-in. They are contributed as DEFAULTS added last, so anything a service sets 
 | `management.opentelemetry.resource-attributes.service.instance.id` | `$HOSTNAME`, else a unique local id | Prometheus derives `instance` from it; without it every replica collapses into ONE series and each crossing reads as a counter reset |
 | `management.otlp.metrics.export.enabled` | `true` only when `dcre.telemetry.enabled` is exactly (case-insensitively) `true` | Boot's own OTLP export activates on the JAR being present, which no marker of ours can refuse, so the marker is made to control it here. Resolved in Java, never a placeholder: an empty marker would resolve to `""` and Boot's gate defaults to ON |
 
+A FIFTH property is written by `TelemetryAutoConfiguration`, and only by services that set
+`dcre.telemetry.enabled=true`, so a consumer that asks for no telemetry is untouched by it:
+
+| Written key | Value | Why |
+|---|---|---|
+| `management.otlp.metrics.export.aggregation-temporality` | `cumulative` | With `delta` an orderly exit publishes NOTHING: the receiver accepts the payload with HTTP 200 and an empty `partialSuccess` and stores none of it, so no error appears in the application, in the collector or in a panel. Measured 2026-09-11, isolated to the receiver by hand-posting a delta payload |
+
+**Setting that key to anything but `cumulative` fails the service at startup, by name.** That is
+deliberate rather than a default quietly winning: the realistic override channel is an environment
+variable nobody remembers setting, and its consequence is silence rather than an error, which is the
+one failure shape no dashboard can show. A blank value is treated as UNSET and starts normally,
+because binding `""` to `AggregationTemporality` was measured to yield no value and Boot then falls
+back to its own cumulative default; refusing it would crash a working service over an ordinary
+valueless ConfigMap key.
+
+The contributed default is a PIN, not the fix. Boot 4.1.0 already defaults to cumulative
+(`OtlpMetricsProperties`' constructor assigns `AggregationTemporality.CUMULATIVE`, read from the
+bytecode of `spring-boot-micrometer-metrics-4.1.0.jar` on 2026-09-11), so writing it buys nothing
+today and holds the value if that default ever moves. The refusal is what closes the defect.
+
 | Name | Default | Purpose |
 |---|---|---|
 | `DCRE_EXCHANGE_ROOT` (env) | `../../../../../infra/dcre-infra/exchange` (dev-relative, from the shipped yml) | Exchange root directory; AGT exports an absolute path to every stage pod |
@@ -142,22 +171,50 @@ opt-in. They are contributed as DEFAULTS added last, so anything a service sets 
 | `dcre.telemetry.enabled` | unset (so `false`) | Activation marker for `TelemetryAutoConfiguration` AND for OTLP export. Deliberately not an endpoint: an endpoint is the shape the orchestrator broadcasts to every pod |
 | `dcre.telemetry.stage` | unset (the application package leaf is used) | Explicit override for the stage token. It is NOT the token handed to `OutcomeSeamListener`, which is per-job: `mrv` carries two and `mrg` passes a variable, so two services would publish two `job` labels each |
 
+## What a killed pod loses, and why there is no flush
+
+**A process killed with SIGKILL, evicted ungracefully, or terminated by the out-of-memory killer
+publishes NO telemetry for its final export window.** Measured 2026-09-11 via `Runtime.halt(0)`:
+zero series. No shutdown-time mechanism prevents this, because every one of them runs during
+shutdown and a kill skips shutdown. The chaos gate kills stage pods with grace 0 on purpose, so a
+chaos run will show missing telemetry for exactly the pods it killed. That absence is expected
+behaviour and not a monitoring defect.
+
+**An ORDERLY exit needs no flush, and one must not be added.** The Task 1 spike measured a
+1.61-second Spring Boot 4.1.0 / Batch 6.0.4 job against a 5-second export step reporting its
+counter: Micrometer 1.17.0's OTLP registry publishes in `close()`, Spring closes the registry bean
+during context close, and `SpringApplication.exit` performs that close. Do not add a shutdown hook, a
+`@PreDestroy`, a `ContextClosedEvent` listener or a `JobExecutionListener` that closes the registry.
+Two of those four were measured as no-ops that only looked correct because the baseline already
+worked.
+
+So the two ends of the range are: an orderly exit reports without help, and a kill reports nothing
+that help could recover. The failure worth engineering against sits between them and is
+configuration, not lifecycle, which is what the `aggregation-temporality` refusal above addresses.
+
 ## Testing
 
 ```bash
 ./gradlew test
 ```
 
-Sixteen test classes, 99 tests (JUnit 6, AssertJ), counted from
+`check` depends on `test` and nothing else in this module (read from `./gradlew check --dry-run`,
+2026-09-11), so `clean build` above is the whole gate and there is no separate verification script
+to run instead.
+
+Seventeen test classes, 107 tests (JUnit 6, AssertJ), counted from
 `build/test-results/test/TEST-*.xml` after a full `./gradlew clean build` on 2026-09-11.
 Container-free: autoconfig back-off and activation (`ApplicationContextRunner`, including the
 `DCRE_EXCHANGE_ROOT` relaxed-binding regression), shared-yml binding of all 81 leaf directories,
 idempotent/fail-closed bootstrap, partition clamping, the outcome seam, the `ExitCodeMain`
-classification seam, and the telemetry identity (read through Boot's own
+classification seam, the telemetry identity (read through Boot's own
 `OpenTelemetryResourceAttributes`, so the assertions are about what the exporter receives rather
-than about the property keys the library writes). Testcontainers CockroachDB (Docker required):
-`BatchJdbcConfigIT`, `PortalSafeStepExecutionDaoIT`, `HeartbeatWriterIT`,
-`StaleChangelogLockReleaserIT`, `LiquibaseLockAutoConfigurationIT`.
+than about the property keys the library writes), and the `aggregation-temporality` refusal
+(`TemporalityIT`, which reads its default back through Boot's own `OtlpMetricsProperties`).
+Testcontainers CockroachDB (Docker required): `BatchJdbcConfigIT`, `PortalSafeStepExecutionDaoIT`,
+`HeartbeatWriterIT`, `StaleChangelogLockReleaserIT`, `LiquibaseLockAutoConfigurationIT`. The `IT`
+suffix marks a test that boots something real, not one that needs Docker: `TemporalityIT` and
+`ExitCodeMainForkIT` need none.
 
 `ExitCodeMainForkIT` is the odd one out and deliberately so: a unit test on the classification
 seam would pass while the real process still exited 1, so it forks a JVM
