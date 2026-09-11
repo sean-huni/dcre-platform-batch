@@ -14,6 +14,19 @@
   wins outright, with no edit to this library. Measured 2026-09-11: no logback configuration of any
   name exists anywhere else in the DCRE tree, so today this is the fleet's only one.
 
+  WHAT SHIPPING THIS COSTS, stated because it is a LOSS and not merely a choice. Boot's own
+  base.xml includes file-appender.xml and puts FILE on the root beside CONSOLE. This file does not,
+  so logging.file.name and logging.file.path DO NOTHING on any service that takes this
+  configuration: Boot applies the properties, the appender they configure does not exist, and no
+  error is raised. That omission is deliberate. Boot's FILE appender defaults LOG_FILE into the
+  temp directory and its rolling policy defaults totalSizeCap to 0, which is no cap at all, so
+  including it would write an unbounded rolling file inside every one of 30 one-shot batch pods
+  whether anyone asked for one or not. The loss is therefore made LOUD instead of silent:
+  TelemetryAutoConfiguration.FILE_LOGGING_LOST refuses startup for a service that configures file
+  logging and would get none. The remedy is the escape hatch above, a service-local logback.xml,
+  which Boot reads before this file. Measured 2026-09-11: nothing in the DCRE tree sets either
+  property, so the guard bites nobody today.
+
   ATTACHING IS HALF THE WIRING. OpenTelemetryAppender.install(openTelemetry) is what hands this
   appender the SDK; without it the appender stays attached and drops every record silently, which
   looks exactly like a working log pipeline. TelemetryAutoConfiguration owns that call, and

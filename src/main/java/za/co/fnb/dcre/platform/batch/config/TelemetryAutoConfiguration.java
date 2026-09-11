@@ -15,6 +15,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
 
 import za.co.fnb.dcre.platform.batch.config.properties.TelemetryProperties;
+import za.co.fnb.dcre.platform.batch.telemetry.ParentTraceContext;
 import za.co.fnb.dcre.platform.batch.telemetry.StageIdentity;
 
 import java.util.Map;
@@ -76,6 +77,17 @@ public class TelemetryAutoConfiguration {
             + "or disabled, and this library puts it on every consumer's classpath through "
             + "spring-boot-starter-opentelemetry, so reaching this message means that "
             + "autoconfiguration was excluded deliberately";
+
+    static final String FILE_LOGGING_LOST =
+            "logging.file.name or logging.file.path is set, but the root logger has no file "
+            + "appender, so this service configured file logging and would get NONE. This library "
+            + "ships logback-spring.xml, which Boot reads in preference to its own default "
+            + "configuration, and it declares only CONSOLE and the OTLP appender: including Boot's "
+            + "file-appender.xml would write a rolling file inside every one of 30 one-shot batch "
+            + "pods whether asked or not, and its rolling policy defaults totalSizeCap to 0, which "
+            + "is no cap at all. The omission is deliberate and this refusal is what stops it being "
+            + "silent. Ship a service-local logback.xml, which Boot reads BEFORE logback-spring.xml, "
+            + "if this service needs a log file";
 
     static final String INSTANCE_NOT_PUBLISHED =
             "dcre.telemetry.enabled=true but " + TelemetryEnvironmentPostProcessor.INSTANCE_ID_KEY
@@ -153,6 +165,80 @@ public class TelemetryAutoConfiguration {
             }
             OpenTelemetryAppender.install(sdk);
         };
+    }
+
+    /**
+     * Refuses a service that asked for file logging and would silently get none.
+     *
+     * <p>Asserted on the EFFECT, the appenders actually attached to the root logger, and never on
+     * the property alone. A consumer that ships its own {@code logback.xml} WITH a file appender is
+     * correctly configured and must not be refused, and a property-only check could not tell the two
+     * apart. It runs after all singletons because by then Boot's logging system has long since
+     * applied whichever configuration won.
+     *
+     * <p>Behind the telemetry marker, like everything else here, so it can only refuse a service
+     * that asked for telemetry. STATED GAP: a consumer with telemetry switched off still loses file
+     * logging silently, because this library's logback configuration ships on the classpath
+     * unconditionally while this guard does not. The remedy is identical in both cases.
+     */
+    @Bean
+    SmartInitializingSingleton dcreFileLoggingGuard(final Environment environment) {
+        return () -> {
+            if (!fileLoggingConfigured(environment) || rootHasAFileAppender()) {
+                return;
+            }
+            throw new IllegalStateException(FILE_LOGGING_LOST);
+        };
+    }
+
+    private static boolean fileLoggingConfigured(final Environment environment) {
+        return hasText(environment.getProperty("logging.file.name"))
+               || hasText(environment.getProperty("logging.file.path"));
+    }
+
+    private static boolean hasText(final String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /**
+     * Any appender writing to a file, found by TYPE rather than by the name {@code FILE}, because a
+     * service-local configuration is free to call its appender anything.
+     */
+    private static boolean rootHasAFileAppender() {
+        final org.slf4j.ILoggerFactory factory = org.slf4j.LoggerFactory.getILoggerFactory();
+        if (!(factory instanceof ch.qos.logback.classic.LoggerContext context)) {
+            // Not logback, so this library's logback-spring.xml is not what is in force and the
+            // loss it would cause cannot be happening.
+            return true;
+        }
+        final ch.qos.logback.classic.Logger root =
+                context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        for (java.util.Iterator<ch.qos.logback.core.Appender<ch.qos.logback.classic.spi.ILoggingEvent>>
+                appenders = root.iteratorForAppenders(); appenders.hasNext(); ) {
+            if (appenders.next() instanceof ch.qos.logback.core.FileAppender<?>) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Adopts the arrival's trace context, so a DAG is ONE trace rather than one trace per pod.
+     *
+     * <p>This is the CONSUMER half of the variable AGT sets, and without it that variable is inert:
+     * measured over all 65 jars on this module's resolved runtime classpath on 2026-09-11, nothing
+     * reads {@code TRACEPARENT} from the environment. See {@link ParentTraceContext} for the
+     * measurement and {@link ParentTraceContextListener} for the window it is made current across.
+     *
+     * <p>Read through the {@link Environment} rather than {@code System.getenv} so a test can seed
+     * it the way a Kubernetes {@code env:} entry seeds it, through a property source, and so a
+     * consumer can also set it as an ordinary property. The lookup is by the exact variable name,
+     * which {@code SystemEnvironmentPropertySource} resolves directly.
+     */
+    @Bean
+    ParentTraceContextListener dcreParentTraceContextListener(final Environment environment) {
+        return new ParentTraceContextListener(
+                environment.getProperty(ParentTraceContext.TRACEPARENT));
     }
 
     /**

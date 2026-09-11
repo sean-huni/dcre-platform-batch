@@ -34,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * The log signal, proved end to end inside the JVM: the appender is ATTACHED, and a record a service
@@ -158,17 +159,53 @@ class LogExportTest {
     }
 
     /**
+     * The file-appender omission is a documented LOSS, so it gets a control that proves the loss is
+     * loud rather than silent. Without this, {@code FILE_LOGGING_LOST} is a message no execution
+     * ever produces.
+     */
+    @Test
+    void aServiceThatConfiguresFileLoggingAndWouldGetNoneIsRefused() {
+        try (ConfigurableApplicationContext ignored = boot()) {
+            // The appender set is global to the JVM once Boot has configured logback, so the guard
+            // is exercised against the REAL attached appenders rather than a fixture of them.
+            assertThat(catchThrowable(() -> bootWith("--logging.file.name=/tmp/dcre-should-refuse.log")))
+                    .as("configuring file logging against this library's logback-spring.xml gets no "
+                        + "file and no error, which is the silence this guard removes")
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("configured file logging and would get NONE");
+        }
+    }
+
+    /**
+     * The discriminator. Without it, the refusal above is equally explained by a guard that refuses
+     * every context, and the fleet, none of which sets these properties, would be unstartable.
+     */
+    @Test
+    void aServiceThatConfiguresNoFileLoggingStartsNormally() {
+        try (ConfigurableApplicationContext context = boot()) {
+            assertThat(context.isActive()).isTrue();
+        }
+    }
+
+    /**
      * A real {@code SpringApplication}, because only that fires the event that makes Boot read
      * {@code logback-spring.xml}. Command-line arguments rather than default properties: defaults
      * sit at the bottom of the precedence order beside the very source this library contributes,
      * and a fixture that can be outranked by the code under test proves nothing.
      */
     private static ConfigurableApplicationContext boot() {
+        return bootWith();
+    }
+
+    private static ConfigurableApplicationContext bootWith(final String... extraArguments) {
         final SpringApplication application = new SpringApplication(Fixture.class);
         application.setWebApplicationType(WebApplicationType.NONE);
         application.setBannerMode(Banner.Mode.OFF);
-        return application.run("--" + TelemetryProperties.ENABLED + "=true",
-                               "--" + TelemetryProperties.STAGE + "=" + STAGE_TOKEN);
+        final java.util.List<String> arguments = new ArrayList<>(
+                List.of("--" + TelemetryProperties.ENABLED + "=true",
+                        "--" + TelemetryProperties.STAGE + "=" + STAGE_TOKEN));
+        arguments.addAll(List.of(extraArguments));
+        return application.run(arguments.toArray(String[]::new));
     }
 
     @Configuration(proxyBeanMethods = false)
