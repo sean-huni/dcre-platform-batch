@@ -141,22 +141,6 @@ images, and `kind load` them again.
 
 ## Related repositories
 
-- Orchestrator: [dcre-agt](https://github.com/sean-huni/dcre-agt)
-- Stage services: [dcre-crr](https://github.com/sean-huni/dcre-crr),
-  [dcre-ctv](https://github.com/sean-huni/dcre-ctv),
-  [dcre-cde](https://github.com/sean-huni/dcre-cde),
-  [dcre-cir](https://github.com/sean-huni/dcre-cir),
-  [dcre-crw](https://github.com/sean-huni/dcre-crw),
-  [dcre-cix](https://github.com/sean-huni/dcre-cix),
-  [dcre-csx](https://github.com/sean-huni/dcre-csx),
-  [dcre-cpx](https://github.com/sean-huni/dcre-cpx),
-  [dcre-crg](https://github.com/sean-huni/dcre-crg),
-  [dcre-pai](https://github.com/sean-huni/dcre-pai),
-  [dcre-hcs](https://github.com/sean-huni/dcre-hcs)
-- Platform libraries: [dcre-platform-model](https://github.com/sean-huni/dcre-platform-model),
-  [dcre-platform-files](https://github.com/sean-huni/dcre-platform-files),
-  [dcre-platform-persistence](https://github.com/sean-huni/dcre-platform-persistence)
-- Infra and tooling: [dcre-infra](https://github.com/sean-huni/dcre-infra),
-  [dcre-fixture-toolkit](https://github.com/sean-huni/dcre-fixture-toolkit),
-  [dcre-design-register](https://github.com/sean-huni/dcre-design-register),
-  [dcre-rpt](https://github.com/sean-huni/dcre-rpt)
+The complete, current list of live DCRE repositories (stage services, orchestrator, platform libraries, infra and tooling) lives in one place: the [DCRE design register README](https://github.com/sean-huni/dcre-design-register#repositories). Deprecated and archived repositories are deliberately absent from it. This README does not copy that list, so it cannot drift.
+
+- Design register: https://github.com/sean-huni/dcre-design-register (start at `docs/specs/DESIGN-REGISTER.md`; the diagrams in `docs/diagrams/` are the specification)
